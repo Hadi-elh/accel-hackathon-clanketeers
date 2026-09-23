@@ -93,8 +93,12 @@ _clients: dict[str, OpenAI] = {}
 
 _THINK = re.compile(r"<think>.*?</think>", re.S)
 _WS = re.compile(r"\s+")
+_INVISIBLE = re.compile("[\u00ad\u200b\u200c\u200d\u2060\ufeff]")  # soft hyphen, zero-width chars
 _EDGE = " \t\n\"'“”‘’.…,;:"
 MIN_EVIDENCE_CHARS = 12  # stops "de" or "pand" passing the substring check
+# Outputs are not reproducible even at temperature 0 on shared endpoints, so a failure
+# must be captured when it happens. model_runs has no column for raw text; this file does.
+FAILURE_LOG = Path(__file__).with_name("failures.local.jsonl")
 
 
 # ------------------------------------------------------------------ helpers
@@ -140,7 +144,8 @@ def parse_json(text: str | None) -> dict | None:
 
 
 def _norm(s: str) -> str:
-    return _WS.sub(" ", s).strip()
+    """Collapse whitespace and drop invisible characters. Visible characters are untouched."""
+    return _WS.sub(" ", _INVISIBLE.sub("", s)).strip()
 
 
 def evidence_ok(evidence: Any, body: Any) -> bool:
@@ -251,6 +256,19 @@ def _call(cfg: dict, alias: str, messages: list[dict], schema: dict, ids: tuple)
     raise last_err or RuntimeError("no response_format mode worked")
 
 
+def _log_failure(notice: dict, alias: str, meta: dict) -> None:
+    try:
+        with FAILURE_LOG.open("a") as f:
+            f.write(json.dumps({"notice_id": notice.get("id"), "alias": alias,
+                                "prompt_version": PROMPT_VERSION, "error": meta.get("error"),
+                                "finish_reason": meta.get("finish_reason"),
+                                "raw": (meta.get("raw") or "")[:4000],
+                                "body": (notice.get("body") or "")[:4000]},
+                               ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[client] failure log write failed: {e}", file=sys.stderr)
+
+
 def _reasoning_chars(message: Any) -> int:
     extra = getattr(message, "model_extra", None) or {}
     r = extra.get("reasoning_content") or extra.get("reasoning") or ""
@@ -292,6 +310,8 @@ def classify(notice: dict, profile: dict, model: str = "small") -> tuple[dict | 
             meta["errors"] = validate(result, notice, profile)
             meta["ok"] = not meta["errors"]
             meta["error"] = ",".join(meta["errors"]) or None
+        if not meta["ok"]:
+            _log_failure(notice, model, meta)
     except Exception as e:  # never raise
         meta["error"] = f"{type(e).__name__}: {e}"[:1000]
     finally:
@@ -310,12 +330,12 @@ if __name__ == "__main__":
     profile = json.loads(Path("app/profiles/vandijk.json").read_text())
     for alias in ("small", "small_think", "large"):
         rows = [classify(n, profile, alias)[1] for n in notices]
-        def avg(key):
+        def avg(key, nd=1):
             vals = [r[key] for r in rows if r[key] is not None]
-            return round(sum(vals) / len(vals), 1) if vals else None
+            return round(sum(vals) / len(vals), nd) if vals else None
         print(f"{alias:12} n={len(rows)} ok={sum(r['ok'] for r in rows)} "
               f"in={avg('input_tokens')} out={avg('output_tokens')} "
               f"reasoning_tokens={avg('reasoning_tokens')} reasoning_chars={avg('reasoning_chars')} "
-              f"latency_ms={avg('latency_ms')} cost_eur={avg('cost_eur')} "
+              f"latency_ms={avg('latency_ms')} cost_eur={avg('cost_eur', 8)} "
               f"modes={sorted({r['mode'] for r in rows if r['mode']})} "
               f"errors={[r['error'] for r in rows if r['error']][:3]}")

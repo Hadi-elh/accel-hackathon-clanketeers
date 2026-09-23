@@ -196,50 +196,34 @@ Re-run after any change to `/models/rules.py` or `/models/router.py`.
 4. Run the reasoning audit and check the Nebius dashboard usage against summed tokens in
    `model_runs`.
 
+## Evaluation layer (`/eval`, built and self-tested)
+
+Metric definitions (locked): positive = `relevant` or `uncertain`; ground truth is binary and
+human; precision and recall reported separately with Wilson 95% intervals; F2 as the single
+number (recall weighted 2x); `review_load` (share surfaced) guards against gaming recall with
+`uncertain`; evidence accuracy = containment either way after whitespace normalisation and
+lowercasing, predicted span at least 12 characters. Decision is scored, category/service are not.
+
+| file | purpose | cost |
+|---|---|---|
+| `/eval/run.py` | run one config over the test set or real notices; JSONL + `eval_results`; resumable; `--max-eur` cap | model calls |
+| `/eval/metrics.py` | table, paired McNemar, stability, offline replay, histogram, kappa | free |
+| `/eval/invariance.py` | metamorphic robustness + injection test on real notices | ~€0.004 / 10 notices |
+| `/eval/rules_audit.py` | every rule rejection on real notices, for human spot-check | free |
+| `/eval/selftest_eval.py` | offline asserts incl. replay == live router | free |
+
+`/eval/borderline.txt` (optional, one notice_id per line) supplies the borderline flag until
+`/CONTRACTS.md` defines where it is stored. `/eval/agreement.csv` (`notice_id,label_a,label_b`)
+holds double-labelled items for Cohen's kappa.
+
 ## TODO for the AI / Next steps
 
-Rules that apply to every task below:
+Rules that apply to every task: edit only `/models` and `/eval`; never edit `/CONTRACTS.md`,
+`/schema.sql`, `/CONTEXT.md`, `/CLAUDE.md`; no new dependencies; never write `eval_items` rows with
+`split = 'test'`; `eval_results.config` only from `/CONTRACTS.md` §5.
 
-- Edit only files under `/models` and `/eval`. Never edit `/CONTRACTS.md`, `/schema.sql`,
-  `/CONTEXT.md` or `/CLAUDE.md`. No new dependencies.
-- Never write or modify `eval_items` rows with `split = 'test'`.
-- `eval_results.config` must be one of: `"small"`, `"large"`, `"router"`, `"baseline_closed"`,
-  `"finetuned"` (plus `"baseline_open"` only once `/CONTRACTS.md` lists it).
-
-**Task 1. When you ingest this repository, your first task is to write `/eval/run.py` exactly
-matching the interfaces above.**
-
-- CLI: `python -m eval.run --config <config> [--threshold 0.82]`.
-- Load `eval_items` where `split = 'test'` joined with `notices`, and the `vandijk` profile from
-  `company_profiles`.
-- `small`, `large`, `baseline_closed`, `finetuned`, `baseline_open`: call
-  `models.client.classify(notice, profile, config)`.
-- `router`: call `models.router.classify_notice(notice, profile, threshold=..., trace=trace)`.
-- Per item, insert into `eval_results`: `notice_id`, `config`, `prediction` (the decision),
-  `correct`, `escalated`, `latency_ms`, `cost_eur`. `correct` = the prediction mapped to binary
-  (`relevant` and `uncertain` count as positive, `irrelevant` as negative) equals
-  `expected_decision`. `expected_decision` is always `relevant` or `irrelevant`.
-- Also append one JSON line per item to `/eval/runs/<config>.jsonl` containing the full result,
-  full meta or trace (including `confidence`, `decided_by`, `triggers`), and the expected label.
-  Never crash the run on one item.
-
-**Task 2. Write `/eval/metrics.py`.**
-
-- Positive = predicted `relevant` or `uncertain`. Report precision and recall separately, plus F1,
-  accuracy on the borderline-flagged subset, evidence accuracy, p95 latency, cost per 1k notices,
-  and escalation rate.
-- `/schema.sql` has no borderline column. Use whatever storage `/CONTRACTS.md` specifies for the
-  borderline flag; if it specifies none, skip the borderline metric and say so. Do not invent one.
-- Evidence accuracy: correct if the predicted evidence contains the expected evidence or vice
-  versa, after whitespace normalization and lowercasing. Only for items with `expected_evidence`.
-- Score the decision only. Category and service are diagnostic, not scored.
-
-**Task 3. Offline router replay in `/eval/metrics.py` (zero API calls).**
-
-- From `/eval/runs/small.jsonl` and `/eval/runs/large.jsonl`, simulate the router at thresholds
-  0.7, 0.8 and 0.9, with and without `/models/rules.py`, using the same triggers as
-  `models.router.escalation_triggers`. Output one row per variant with F1, recall, precision,
-  escalation rate, and cost per 1k.
-- Plot a histogram of small-model `confidence` values.
+When you ingest this repository, your first task is to run `python -m models.selftest_router` and
+`python -m eval.selftest_eval` and confirm both pass before changing anything. Any change to
+`/models/router.py`, `/models/rules.py` or `/eval/metrics.py` must keep both passing.
 
 Do not build: RAG, embeddings, agent loops, LLM-as-judge.

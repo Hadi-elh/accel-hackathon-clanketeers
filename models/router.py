@@ -11,12 +11,13 @@ from __future__ import annotations
 import os
 import time
 from models import rules
-from models.client import MODELS, classify, validate
+from models.client import MODELS, _norm, classify, validate
 
 THRESHOLD = float(os.environ.get("ROUTER_THRESHOLD", "0.82"))
 CONTRACT_KEYS = ("decision", "confidence", "project_type", "property_type",
                  "matched_services", "project_stage", "evidence", "reason")
 _NO_RETRY = ("truncated", "ConfigRejected", "ValueError")
+MIN_BODY_CHARS = 40  # below this there is nothing to classify or quote
 
 
 def _attempt(notice: dict, profile: dict, alias: str, calls: list[dict]) -> tuple[dict | None, dict]:
@@ -76,6 +77,10 @@ def _route(notice: dict, profile: dict, threshold: float, tr: dict) -> dict:
     tr.update(decided_by=None, triggers=[], rule=None, positive_hits=[], calls=calls,
               small=None, large=None)
     try:
+        if len(_norm(notice.get("body") or "")) < MIN_BODY_CHARS:
+            tr["decided_by"] = "fallback"
+            return {**_fallback("empty_or_short_body"), "escalated": False,
+                    "model_used": "none", "cost_eur": 0.0}
         tri = rules.triage(notice, profile)
         tr["rule"], tr["positive_hits"] = tri.rule, tri.positive_hits
         if tri.reject is not None:
