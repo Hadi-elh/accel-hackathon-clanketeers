@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReguLine model evaluation</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>ReguLine model evaluation</h1>
+    <p class="subtitle">Comparison table below is live from Supabase -- every value is a
+      real query result, never a placeholder.</p>
+  </header>
+
+  <div id="status" class="status-line">Loading benchmark…</div>
+  <div id="table-wrap"></div>
+  <p id="router-note" class="reason" style="display:none">We measured a small-model
+    router and did not ship it: see recall.</p>
+
+  <div id="methodology" class="methodology" style="display:none">
+    <h3>Methodology</h3>
+    <p>Ground truth is human-labelled. Each label answers one question: does this official
+      publication describe activity matching the company's configured monitoring profile?
+      Labels are binary (relevant / irrelevant); hard cases carry a separate borderline flag
+      rather than a third class. Evidence is judged by normalized containment in the source
+      text. The test set is deliberately enriched with relevant and hard cases, so its
+      composition does not represent a normal day's stream; production cost and escalation
+      figures come from real daily scans, not from this set. Model confidence is used
+      internally for routing and is never shown to users.</p>
+  </div>
+
+  <footer class="bottom">
+    <a href="/">&larr; Back to signals</a>
+  </footer>
+</div>
+
+<script>
+function pct(x) {
+  return (x === null || x === undefined) ? "—" : `${(100 * x).toFixed(1)}%`;
+}
+
+function pctWithCount(x, num, den) {
+  if (x === null || x === undefined) return "—";
+  const p = `${(100 * x).toFixed(1)}%`;
+  if (num === null || num === undefined || den === null || den === undefined) return p;
+  return `${p} (${num}/${den})`;
+}
+
+function ms(x) {
+  return (x === null || x === undefined) ? "—" : `${Math.round(x)} ms`;
+}
+
+function eur(x) {
+  return (x === null || x === undefined) ? "—" : `€${x.toFixed(4)} / 1k`;
+}
+
+const CONFIG_LABELS = {
+  rules_large: "Production: rules + gpt-oss-120b",
+  router: "Router: rules + Nemotron Nano → gpt-oss-120b (measured, not used)",
+  small: "Nemotron Nano alone",
+  large: "gpt-oss-120b alone",
+};
+
+function configLabel(config) {
+  return CONFIG_LABELS[config] || config;
+}
+
+function renderTable(rows) {
+  const head = ["Config", "Items", "Accuracy", "Precision", "Recall", "F1",
+                "Escalation", "p95 latency", "Cost / 1k notices"];
+  const body = rows.map(r => `
+    <tr>
+      <td>${configLabel(r.config)}</td>
+      <td>${r.items ?? "—"}</td>
+      <td>${pctWithCount(r.accuracy, r.accuracy_num, r.accuracy_den)}</td>
+      <td>${pctWithCount(r.precision, r.precision_num, r.precision_den)}</td>
+      <td>${pctWithCount(r.recall, r.recall_num, r.recall_den)}</td>
+      <td>${pct(r.f1)}</td>
+      <td>${pctWithCount(r.escalation_rate, r.escalation_num, r.escalation_den)}</td>
+      <td>${ms(r.p95_latency_ms)}</td>
+      <td>${eur(r.cost_eur_per_1k)}</td>
+    </tr>
+  `).join("");
+  return `
+    <table class="bench">
+      <thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+async function loadBenchmark() {
+  const statusEl = document.getElementById("status");
+  const tableEl = document.getElementById("table-wrap");
+  const methEl = document.getElementById("methodology");
+  const routerNoteEl = document.getElementById("router-note");
+
+  try {
+    const res = await fetch("/api/benchmark");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    if (!data.results || data.results.length === 0) {
+      statusEl.textContent = "Results pending.";
+      return;
+    }
+
+    statusEl.remove();
+    tableEl.innerHTML = renderTable(data.results);
+    if (data.results.some(r => r.config === "router")) {
+      routerNoteEl.style.display = "block";
+    }
+    methEl.style.display = "block";
+  } catch (err) {
+    statusEl.textContent = "Could not load benchmark.";
+    statusEl.classList.add("error");
+  }
+}
+
+loadBenchmark();
+</script>
+</body>
+</html>

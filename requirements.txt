@@ -1,0 +1,4 @@
+fastapi
+uvicorn
+openai==3.19.0
+supabase==2.31.0
