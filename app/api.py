@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import db
 from app.benchmark import get_benchmark
+from app.economics import get_decision_stats, get_stream_stats
 from app.logic import rank_signals
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -35,6 +36,16 @@ def benchmark_page() -> FileResponse:
 @app.get("/api/benchmark")
 def api_benchmark() -> dict:
     return {"results": get_benchmark()}
+
+
+@app.get("/api/stream_stats")
+def api_stream_stats(profile_id: str = "vandijk") -> dict:
+    return get_stream_stats(profile_id)
+
+
+@app.get("/api/decision_stats")
+def api_decision_stats(profile_id: str = "vandijk") -> dict:
+    return get_decision_stats(profile_id)
 
 SIGNALS_SELECT = (
     "notice_id,decision,project_type,property_type,project_stage,matched_services,"

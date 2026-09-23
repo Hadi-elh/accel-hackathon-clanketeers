@@ -15,6 +15,17 @@
       Evidence shown; commercial decisions stay human.</p>
   </header>
 
+  <div class="panels">
+    <div class="panel" id="panel-stream">
+      <h3>Today's publication stream</h3>
+      <div id="panel-stream-body">Loading…</div>
+    </div>
+    <div class="panel" id="panel-decisions">
+      <h3>How signals were decided</h3>
+      <div id="panel-decisions-body">Loading…</div>
+    </div>
+  </div>
+
   <div id="status" class="status-line">Loading signals…</div>
   <div id="feed" class="feed"></div>
   <div id="no-text-note" class="no-text-note"></div>
@@ -133,7 +144,65 @@ async function loadSignals() {
   }
 }
 
+function panelRow(label, value) {
+  return `<div class="row"><span>${escapeHtml(label)}</span><span class="v">${escapeHtml(String(value))}</span></div>`;
+}
+
+function renderStreamStats(s) {
+  const na = "—";
+  const rows = [
+    panelRow("Fetched", s.fetched ?? na),
+    panelRow("Kept by deterministic filters", s.kept ?? na),
+    panelRow("Inside radius", s.plausible_rubriek ?? na),
+    panelRow("Location not published", s.location_unknown_kept ?? na),
+  ].join("");
+  const lastScan = (s.source === "scan_runs" && s.last_scan)
+    ? `<div class="last-scan">Last scan: ${escapeHtml(s.last_scan)}</div>` : "";
+  return rows + lastScan;
+}
+
+function renderDecisionStats(d) {
+  const na = "—";
+  const cost = (d.total_cost_eur === null || d.total_cost_eur === undefined)
+    ? na : `€${d.total_cost_eur.toFixed(4)}`;
+  const rows = [
+    panelRow("Deterministic rules", `${d.rule_rejected ?? na} · €0 · no model call`),
+    panelRow("Nemotron Nano", d.nemotron_only ?? na),
+    panelRow("Escalated to gpt-oss-120b", d.escalated ?? na),
+    panelRow("Total model cost", cost),
+  ].join("");
+  const lastScan = (d.source === "scan_runs" && d.last_scan)
+    ? `<div class="last-scan">Last scan: ${escapeHtml(d.last_scan)}</div>` : "";
+  return rows + lastScan;
+}
+
+async function loadStreamStats() {
+  const el = document.getElementById("panel-stream-body");
+  try {
+    const res = await fetch("/api/stream_stats?profile_id=vandijk");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    el.innerHTML = renderStreamStats(await res.json());
+  } catch (err) {
+    el.textContent = "—";
+  }
+}
+
+async function loadDecisionStats() {
+  const el = document.getElementById("panel-decisions-body");
+  try {
+    const res = await fetch("/api/decision_stats?profile_id=vandijk");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    el.innerHTML = renderDecisionStats(await res.json());
+  } catch (err) {
+    el.textContent = "—";
+  }
+}
+
+// Three independent fetches -- the feed, and each panel -- never chained.
+// A slow or failing panel never blocks the feed or the other panel.
 loadSignals();
+loadStreamStats();
+loadDecisionStats();
 </script>
 </body>
 </html>
