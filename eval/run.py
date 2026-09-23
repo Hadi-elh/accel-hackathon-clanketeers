@@ -73,16 +73,23 @@ def load_test_items(limit: int | None) -> list[dict]:
     labels = _sb().table("eval_items").select("*").eq("split", "test").execute().data
     notices = _notices_by_id([l["notice_id"] for l in labels])
     border = set(BORDERLINE_FILE.read_text().split()) if BORDERLINE_FILE.exists() else None
-    items = []
+    items, skipped = [], {}
     for l in labels:
         n = notices.get(l["notice_id"])
-        if n is None:
-            print(f"[run] eval_item {l['notice_id']} has no notice row, skipped", file=sys.stderr)
+        why = ("no_notice_row" if n is None
+               else "non_binary_label" if l["expected_decision"] not in ("relevant", "irrelevant")
+               else "empty_body" if len(" ".join((n.get("body") or "").split())) < 40
+               else None)
+        if why:  # never score these: they would count as positives without a model call
+            skipped.setdefault(why, []).append(l["notice_id"])
             continue
         items.append({"notice": n, "label": {
             "expected_decision": l["expected_decision"],
             "expected_evidence": l.get("expected_evidence"),
             "borderline": (l["notice_id"] in border) if border is not None else None}})
+    if skipped:
+        print(f"[run] WARNING {sum(map(len, skipped.values()))}/{len(labels)} test items excluded: "
+              + "; ".join(f"{k}={v}" for k, v in skipped.items()), file=sys.stderr)
     return items[:limit] if limit else items
 
 
