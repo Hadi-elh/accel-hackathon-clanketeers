@@ -14,7 +14,11 @@
   "properties": {
     "decision": {
       "type": "string",
-      "enum": ["relevant", "irrelevant", "uncertain"]
+      "enum": [
+        "relevant",
+        "irrelevant",
+        "uncertain"
+      ]
     },
     "confidence": {
       "type": "number",
@@ -28,16 +32,23 @@
     },
     "property_type": {
       "type": "string",
-      "description": "Short English label, e.g. 'office', 'warehouse', 'single-family home'."
+      "description": "One of the profile's monitored property types copied exactly when one applies, otherwise a short English label, e.g. 'single-family home' or 'unknown'."
     },
     "matched_services": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Subset of the company's services. Empty if none apply."
     },
     "project_stage": {
       "type": "string",
-      "enum": ["permit_application", "permit_granted", "zoning", "other"]
+      "enum": [
+        "permit_application",
+        "permit_granted",
+        "zoning",
+        "other"
+      ]
     },
     "evidence": {
       "type": "string",
@@ -45,7 +56,7 @@
     },
     "reason": {
       "type": "string",
-      "description": "One English sentence explaining the decision."
+      "description": "One English sentence naming which profile criteria matched or failed. Not a recommendation."
     }
   }
 }

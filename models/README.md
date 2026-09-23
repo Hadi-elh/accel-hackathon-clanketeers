@@ -7,8 +7,12 @@ All paths are relative to the repository root. Python imports use the package fo
 
 ## What this folder does
 
-ReguLine decides whether a Dutch government notice (permit, zoning) is relevant to one company,
-e.g. the electrical installer Van Dijk Techniek. Free keyword rules decide the obvious cases,
+ReguLine is signal discovery, not a recommendation engine. The only question this folder answers is:
+does this official publication describe activity that matches the company's configured monitoring
+profile (services, monitored property types, exclusions)? It never judges whether the company should
+pursue it, whether it is a good lead, or whether it is feasible; a human decides that. `relevant`
+means "matches the monitoring profile", nothing more. `confidence` is internal (routing, eval) and
+must never be shown to users as a percentage. Example profile: the electrical installer Van Dijk Techniek. Free keyword rules decide the obvious cases,
 a small open model on Nebius Token Factory handles the bulk, and a large model is called only
 when the small one is uncertain or produces invalid output. Every model call is logged.
 
@@ -41,19 +45,21 @@ keys. `matched_services` is left open in the file; `/models/client.py` injects t
  "property_type": "office", "matched_services": ["commercial electrical installations"],
  "project_stage": "permit_application",
  "evidence": "transformeren en uitbreiden van het bestaande bedrijfspand",
- "reason": "Renovation of a commercial building that will need electrical work."}
+ "reason": "Renovation of an office, a monitored property type, related to configured electrical installation services."}
 ```
 
 ### `/models/prompt.py` — versioned prompt
 
 `build_messages(notice, profile) -> [system, user]`.
 
-- System: company profile plus decision rules. When torn between relevant and irrelevant the model
+- System: the company's monitoring profile plus decision rules, framed as profile matching, not
+  lead scoring. `property_type` must copy a monitored property type exactly when one applies, so
+  the UI can show transparent criteria (e.g. property type in the profile, services matched). When torn between relevant and irrelevant the model
   must say `uncertain`. Evidence is required for every decision, copied verbatim in Dutch from the
   body; for irrelevant notices it is the span that rules the notice out (e.g. "kappen van een boom").
   Dutch stage hints ("aanvraag ontvangen" -> `permit_application`, "verleend" -> `permit_granted`).
 - User: title, municipality, rubriek, date, body (capped at `MAX_BODY_CHARS = 6000`).
-- `PROMPT_VERSION = "v1"` is logged on every call. Bump it on any edit.
+- `PROMPT_VERSION = "v2"` is logged on every call. Bump it on any edit.
 - Tune the prompt only on notices that are not in the test split.
 
 ### `/models/log.py` — telemetry
@@ -63,7 +69,7 @@ model call. If Supabase fails it appends to `/models/runs.local.jsonl`. Never ra
 
 ```json
 {"notice_id": "c", "profile_id": "vandijk", "model": "<nebius-model-id>", "stage": "small",
- "prompt_version": "v1", "input_tokens": 1000, "output_tokens": 200, "latency_ms": 850,
+ "prompt_version": "v2", "input_tokens": 1000, "output_tokens": 200, "latency_ms": 850,
  "cost_eur": 0.0000972, "ok": true, "error": null}
 ```
 
@@ -154,8 +160,8 @@ Rules path:
 {"decision": "irrelevant", "confidence": 0.95, "project_type": "tree removal",
  "property_type": "unknown", "matched_services": [], "project_stage": "permit_application",
  "evidence": "Burgemeester en wethouders hebben een aanvraag ontvangen voor het kappen van een boom aan de Lindengracht 12",
- "reason": "Rule r1/tree_felling: tree removal is not work this company sells into.",
- "escalated": false, "model_used": "rules:r1", "cost_eur": 0.0, "error": null, "latency_ms": 0}
+ "reason": "Rule r2/tree_felling: tree removal is excluded in this monitoring profile.",
+ "escalated": false, "model_used": "rules:r2", "cost_eur": 0.0, "error": null, "latency_ms": 0}
 ```
 
 Escalation path: office notice, small says `irrelevant` at 0.97, trigger

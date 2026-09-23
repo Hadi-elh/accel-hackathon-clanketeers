@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-RULES_VERSION = "r1"
+RULES_VERSION = "r2"  # r2: reasons phrased against the monitoring profile
 RULE_CONFIDENCE = 0.95  # declared, not measured: eval reports the real rule precision
 
 # name -> (pattern, English project_type, profile exclusion that must be present or None)
@@ -101,7 +101,9 @@ def triage(notice: dict, profile: dict) -> Triage:
             "matched_services": [],
             "project_stage": _stage(f"{notice.get('title') or ''} {body}"),
             "evidence": _evidence(body, m.start(), m.end()),
-            "reason": f"Rule {RULES_VERSION}/{name}: {label} is not work this company sells into.",
+            "reason": (f"Rule {RULES_VERSION}/{name}: {label} is excluded in this monitoring profile."
+                       if requires else
+                       f"Rule {RULES_VERSION}/{name}: {label} is not building activity this monitoring profile covers."),
         }
         return t
     return t
