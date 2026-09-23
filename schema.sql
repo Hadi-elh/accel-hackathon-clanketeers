@@ -75,6 +75,34 @@ create table if not exists model_runs (
 
 create index if not exists model_runs_model_idx on model_runs (model, created_at);
 
+-- ----------------------------------------------------------------- scans
+-- One row per POST /api/scan run. Owner: C (/app's scan orchestrator is
+-- the only writer -- see CONTRACTS.md).
+create table if not exists scan_runs (
+  id               uuid primary key default gen_random_uuid(),
+  profile_id       text references company_profiles(id) on delete cascade,
+  scan_date        date,
+  started_at       timestamptz default now(),
+  finished_at      timestamptz,
+  status           text not null default 'running',  -- running | done | failed
+  error            text,
+  fetched          int,
+  kept             int,
+  prefilter_stats  jsonb,        -- full ingest.prefilter.prefilter_stats_for_date() dict
+  rule_rejected    int,
+  ai_analysed      int,
+  escalated        int,
+  uncertain        int,
+  no_text          int,          -- rows with error='empty_or_short_body'
+  relevant         int,
+  cost_eur         numeric,
+  prompt_version   text,
+  rules_version    text
+);
+
+create index if not exists scan_runs_profile_date_idx
+  on scan_runs (profile_id, scan_date desc);
+
 -- ------------------------------------------------------------------ eval
 create table if not exists eval_items (
   notice_id         text primary key references notices(id) on delete cascade,
