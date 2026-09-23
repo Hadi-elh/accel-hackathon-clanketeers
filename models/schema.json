@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "confidence",
+    "project_type",
+    "property_type",
+    "matched_services",
+    "project_stage",
+    "evidence",
+    "reason"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["relevant", "irrelevant", "uncertain"]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Probability that the decision is correct, 0.0 to 1.0."
+    },
+    "project_type": {
+      "type": "string",
+      "description": "Short English label, e.g. 'commercial renovation', 'new build', 'tree removal'."
+    },
+    "property_type": {
+      "type": "string",
+      "description": "Short English label, e.g. 'office', 'warehouse', 'single-family home'."
+    },
+    "matched_services": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Subset of the company's services. Empty if none apply."
+    },
+    "project_stage": {
+      "type": "string",
+      "enum": ["permit_application", "permit_granted", "zoning", "other"]
+    },
+    "evidence": {
+      "type": "string",
+      "description": "Exact copy of one phrase or sentence from the notice body, in Dutch. Never paraphrase, translate or shorten with ellipses. Required for every decision."
+    },
+    "reason": {
+      "type": "string",
+      "description": "One English sentence explaining the decision."
+    }
+  }
+}
