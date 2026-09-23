@@ -7,29 +7,49 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <h1>ReguLine</h1>
-    <p class="profile-line" id="profile-line">Loading profile…</p>
-    <p class="subtitle">Official Dutch publications matching this company's monitoring profile.
+<div class="wrap wide">
+  <header class="topbar">
+    <div class="topbar-row">
+      <div class="wordmark">ReguLine</div>
+      <div class="profile-chip" id="profile-chip">Loading profile…</div>
+    </div>
+    <p class="tagline">Official Dutch publications matching this company's monitoring profile.
       Evidence shown; commercial decisions stay human.</p>
   </header>
 
-  <div class="panels">
-    <div class="panel" id="panel-stream">
-      <h3>Today's publication stream</h3>
-      <div id="panel-stream-body">Loading…</div>
-    </div>
-    <div class="panel" id="panel-decisions">
-      <h3>How signals were decided</h3>
-      <div id="panel-decisions-body">Loading…</div>
-    </div>
-  </div>
+  <div class="layout">
+    <main class="feed-col">
+      <section class="try-it" id="try-it">
+        <h3>Try it live</h3>
+        <div class="try-it-buttons">
+          <button class="btn" id="btn-load-notice">Load a real publication</button>
+          <button class="btn btn-primary" id="btn-classify" disabled>Classify now</button>
+        </div>
+        <div class="notice-preview" id="notice-preview" style="display:none"></div>
+        <div class="pipeline" id="pipeline" style="display:none"></div>
+        <div class="try-it-result" id="try-it-result"></div>
+      </section>
 
-  <div id="status" class="status-line">Loading signals…</div>
-  <div id="feed" class="feed"></div>
-  <div id="no-text-note" class="no-text-note"></div>
-  <div id="failed-note" class="no-text-note"></div>
+      <div class="tabs" id="tabs"></div>
+      <div id="status" class="status-line">Loading signals…</div>
+      <div id="feed" class="feed"></div>
+      <div id="no-text-note" class="no-text-note"></div>
+      <div id="failed-note" class="no-text-note"></div>
+    </main>
+
+    <aside class="sidebar">
+      <div class="panel" id="panel-stream">
+        <h3>Today's publication stream</h3>
+        <div id="panel-stream-body">Loading…</div>
+      </div>
+      <div class="panel" id="panel-decisions">
+        <h3>Classified today</h3>
+        <div id="panel-decisions-body">Loading…</div>
+        <p class="panel-note">Scans run as a daily batch; this demo shows today's
+          classified publications.</p>
+      </div>
+    </aside>
+  </div>
 
   <footer class="bottom">
     <a href="/benchmark">Model evaluation &amp; benchmark →</a>
@@ -38,17 +58,29 @@
 
 <script>
 const TIER_LABELS = {
-  HIGH: "HIGH RELEVANCE",
-  MEDIUM: "MEDIUM RELEVANCE",
-  LOW: "LOW RELEVANCE",
+  HIGH: "HIGH",
+  MEDIUM: "MEDIUM",
+  LOW: "LOW",
   NEEDS_REVIEW: "NEEDS REVIEW",
 };
+
+const CHECK_ICON = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+  <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" stroke-width="2.2"
+    stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+let allSignals = [];
+let currentTier = "ALL";
 
 function escapeHtml(s) {
   if (s === null || s === undefined) return "";
   return String(s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function capitalize(s) {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function decidedByLabel(modelUsed) {
@@ -71,11 +103,11 @@ function whyItems(signal) {
   const checks = signal.checks || {};
   const items = [];
   if (checks.property_match) {
-    items.push(`Monitored property type: ${escapeHtml(signal.property_type)}`);
+    items.push(`Monitored property type: ${signal.property_type}`);
   }
   if (checks.services_match) {
     const services = (signal.matched_services || []).join(", ");
-    items.push(`Related configured services: ${escapeHtml(services)}`);
+    items.push(`Related configured services: ${services}`);
   }
   if (checks.inside_radius) {
     items.push("Inside monitoring radius");
@@ -85,38 +117,73 @@ function whyItems(signal) {
 
 function renderCard(signal) {
   const tierLabel = TIER_LABELS[signal.tier] || signal.tier;
-  const title = signal.project_type || signal.title || "Untitled publication";
+  const title = capitalize(signal.project_type || signal.title || "Untitled publication");
   const why = whyItems(signal);
 
-  const whyHtml = why.length
-    ? `<ul class="why">${why.map(w => `<li>${w}</li>`).join("")}</ul>`
+  const chipsHtml = why.length
+    ? `<div class="chips">${why.map(w => `<span class="chip">${CHECK_ICON}${escapeHtml(w)}</span>`).join("")}</div>`
     : "";
 
   return `
-    <article class="card">
-      <span class="tier ${escapeHtml(signal.tier)}">${escapeHtml(tierLabel)}</span>
+    <article class="card tier-${escapeHtml(signal.tier)}">
+      <span class="tier-label ${escapeHtml(signal.tier)}">${escapeHtml(tierLabel)}</span>
       <h2>${escapeHtml(title)}</h2>
       <p class="meta-line">${locationLine(signal.municipality, signal.checks && signal.checks.distance_km)}
         · ${escapeHtml(signal.published_on || "")}</p>
-      ${whyHtml}
-      <p class="evidence-label">Official evidence</p>
+      ${chipsHtml}
+      <p class="evidence-label">Official evidence · Officiële Bekendmakingen</p>
       <blockquote class="evidence">${escapeHtml(signal.evidence)}</blockquote>
       <p class="reason">${escapeHtml(signal.reason)}</p>
-      <p class="decided-label">Decided by</p>
-      <p class="decided-value">${decidedByLabel(signal.model_used)}</p>
-      <a class="source-link" href="${escapeHtml(signal.source_url)}" target="_blank" rel="noopener">
-        View official publication →
-      </a>
+      <div class="card-footer">
+        <span class="decided-tag">Decided by ${escapeHtml(decidedByLabel(signal.model_used))}</span>
+        <a class="source-link" href="${escapeHtml(signal.source_url)}" target="_blank" rel="noopener">
+          View official publication →
+        </a>
+      </div>
     </article>
   `;
 }
 
+function tierCounts(signals) {
+  const counts = { ALL: signals.length, HIGH: 0, MEDIUM: 0, LOW: 0, NEEDS_REVIEW: 0 };
+  for (const s of signals) {
+    if (counts[s.tier] !== undefined) counts[s.tier]++;
+  }
+  return counts;
+}
+
+function renderFeed() {
+  const feedEl = document.getElementById("feed");
+  const filtered = currentTier === "ALL" ? allSignals : allSignals.filter(s => s.tier === currentTier);
+  feedEl.innerHTML = filtered.map(renderCard).join("");
+}
+
+function setupTabs(counts) {
+  const tabsEl = document.getElementById("tabs");
+  const defs = [["ALL", "All"], ["HIGH", "High"], ["MEDIUM", "Medium"]];
+  if (counts.LOW > 0) defs.push(["LOW", "Low"]);
+  defs.push(["NEEDS_REVIEW", "Needs review"]);
+
+  tabsEl.innerHTML = defs.map(([key, label]) =>
+    `<button class="tab${key === currentTier ? " active" : ""}" data-tier="${key}">` +
+    `${label} (${counts[key]})</button>`
+  ).join("");
+
+  tabsEl.querySelectorAll(".tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      currentTier = btn.dataset.tier;
+      tabsEl.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b === btn));
+      renderFeed();
+    });
+  });
+}
+
 async function loadSignals() {
   const statusEl = document.getElementById("status");
-  const feedEl = document.getElementById("feed");
-  const profileLineEl = document.getElementById("profile-line");
+  const chipEl = document.getElementById("profile-chip");
   const noTextEl = document.getElementById("no-text-note");
   const failedEl = document.getElementById("failed-note");
+  const tabsEl = document.getElementById("tabs");
 
   try {
     const res = await fetch("/api/signals?profile_id=vandijk");
@@ -124,17 +191,19 @@ async function loadSignals() {
     const data = await res.json();
 
     const p = data.profile || {};
-    profileLineEl.textContent =
-      `${p.name || "Unknown company"} (fictional demo profile) · Electrical installation ` +
-      `· Amsterdam · ${p.radius_km !== undefined ? p.radius_km : "?"} km radius`;
+    chipEl.textContent = `${p.name || "Unknown company"} · fictional demo profile`;
 
-    if (!data.signals || data.signals.length === 0) {
+    allSignals = data.signals || [];
+
+    if (allSignals.length === 0) {
       statusEl.textContent = "No matching publications yet.";
       statusEl.classList.remove("error");
-      feedEl.innerHTML = "";
+      tabsEl.innerHTML = "";
+      document.getElementById("feed").innerHTML = "";
     } else {
       statusEl.remove();
-      feedEl.innerHTML = data.signals.map(renderCard).join("");
+      setupTabs(tierCounts(allSignals));
+      renderFeed();
     }
 
     if (data.no_text_count && data.no_text_count > 0) {
@@ -147,7 +216,7 @@ async function loadSignals() {
   } catch (err) {
     statusEl.textContent = "Could not load signals.";
     statusEl.classList.add("error");
-    profileLineEl.textContent = "Van Dijk Techniek (fictional demo profile)";
+    chipEl.textContent = "Van Dijk Techniek · fictional demo profile";
   }
 }
 
@@ -159,7 +228,7 @@ function renderStreamStats(s) {
   const na = "—";
   const rows = [
     panelRow("Fetched", s.fetched ?? na),
-    panelRow("Kept by deterministic filters", s.kept ?? na),
+    panelRow("Passed deterministic filters", s.kept ?? na),
     panelRow("Inside radius", s.plausible_rubriek ?? na),
     panelRow("Location not published", s.location_unknown_kept ?? na),
   ].join("");
@@ -168,18 +237,27 @@ function renderStreamStats(s) {
   return rows + lastScan;
 }
 
-function renderDecisionStats(d) {
+function renderClassifiedStats(d, relevant, needsReview) {
   const na = "—";
+  const known = d.rule_rejected != null || d.gpt_oss != null || d.nemotron != null;
+  const totalClassified = known
+    ? (d.rule_rejected ?? 0) + (d.gpt_oss ?? 0) + (d.nemotron ?? 0)
+    : null;
   const cost = (d.total_cost_eur === null || d.total_cost_eur === undefined)
-    ? na : `€${d.total_cost_eur.toFixed(4)}`;
+    ? na : `€${d.total_cost_eur.toFixed(2)}`;
+
   const rows = [
-    panelRow("Deterministic rules · €0 · no model call", d.rule_rejected ?? na),
+    panelRow("Total classified", totalClassified ?? na),
+    panelRow("Deterministic rules · €0", d.rule_rejected ?? na),
     panelRow("gpt-oss-120b", d.gpt_oss ?? na),
   ];
   if (d.nemotron) {
     rows.push(panelRow("Nemotron Nano", d.nemotron));
   }
+  rows.push(panelRow("Relevant", relevant ?? na));
+  rows.push(panelRow("Needs review", needsReview ?? na));
   rows.push(panelRow("Total model cost", cost));
+
   const lastScan = (d.source === "scan_runs" && d.last_scan)
     ? `<div class="last-scan">Last scan: ${escapeHtml(d.last_scan)}</div>` : "";
   return rows.join("") + lastScan;
@@ -196,22 +274,172 @@ async function loadStreamStats() {
   }
 }
 
-async function loadDecisionStats() {
+async function loadClassifiedPanel() {
   const el = document.getElementById("panel-decisions-body");
   try {
-    const res = await fetch("/api/decision_stats?profile_id=vandijk");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    el.innerHTML = renderDecisionStats(await res.json());
+    const [dRes, sRes] = await Promise.all([
+      fetch("/api/decision_stats?profile_id=vandijk"),
+      fetch("/api/signals?profile_id=vandijk"),
+    ]);
+    if (!dRes.ok) throw new Error(`HTTP ${dRes.status}`);
+    const d = await dRes.json();
+
+    let relevant = null, needsReview = null;
+    if (sRes.ok) {
+      const sData = await sRes.json();
+      const signals = sData.signals || [];
+      needsReview = signals.filter(s => s.tier === "NEEDS_REVIEW").length;
+      relevant = signals.length - needsReview;
+    }
+
+    el.innerHTML = renderClassifiedStats(d, relevant, needsReview);
   } catch (err) {
     el.textContent = "—";
   }
 }
 
-// Three independent fetches -- the feed, and each panel -- never chained.
-// A slow or failing panel never blocks the feed or the other panel.
+// ---------------------------------------------------------------- try it live
+let currentNotice = null;
+
+function truncate(s, n) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n).trimEnd() + "…" : s;
+}
+
+function renderNoticePreview(n) {
+  return `
+    <p class="np-title">${escapeHtml(n.title || "Untitled publication")}</p>
+    <p class="np-meta">${escapeHtml(n.municipality || "Unknown municipality")}
+      · ${escapeHtml(n.published_on || "")}</p>
+    <p class="np-body">${escapeHtml(truncate(n.body, 400))}</p>
+  `;
+}
+
+function renderPipeline(state) {
+  // state.step1, state.step2 in {"pending","active","done","skipped"}
+  const label1 = "Deterministic rules";
+  const label2 = "gpt-oss-120b on Nebius";
+  return `
+    <span class="pipeline-step ${state.step1}">${label1}</span>
+    <span class="pipeline-step ${state.step2}">${label2}</span>
+  `;
+}
+
+async function loadRandomNoticeForDemo() {
+  const previewEl = document.getElementById("notice-preview");
+  const classifyBtn = document.getElementById("btn-classify");
+  const resultEl = document.getElementById("try-it-result");
+  const pipelineEl = document.getElementById("pipeline");
+
+  previewEl.style.display = "none";
+  pipelineEl.style.display = "none";
+  resultEl.innerHTML = "";
+  classifyBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/random_notice");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    currentNotice = await res.json();
+    previewEl.innerHTML = renderNoticePreview(currentNotice);
+    previewEl.style.display = "block";
+    classifyBtn.disabled = false;
+  } catch (err) {
+    resultEl.innerHTML = `<p class="try-error">Could not load a publication. Try again.</p>`;
+  }
+}
+
+async function runClassifyDemo() {
+  if (!currentNotice) return;
+  const loadBtn = document.getElementById("btn-load-notice");
+  const classifyBtn = document.getElementById("btn-classify");
+  const pipelineEl = document.getElementById("pipeline");
+  const resultEl = document.getElementById("try-it-result");
+
+  loadBtn.disabled = true;
+  classifyBtn.disabled = true;
+  resultEl.innerHTML = "";
+  pipelineEl.style.display = "flex";
+  const state = { step1: "active", step2: "pending" };
+  pipelineEl.innerHTML = renderPipeline(state);
+
+  // Optimistic progress: rules is real and instant; the large-model call is
+  // the real next step in the overwhelming majority of cases. The FINAL
+  // state below is always corrected to match the real model_used, so this
+  // is just a progress indicator during the wait, never a false claim.
+  const progressTimer = setTimeout(() => {
+    state.step1 = "done";
+    state.step2 = "active";
+    pipelineEl.innerHTML = renderPipeline(state);
+  }, 400);
+
+  const controller = new AbortController();
+  const timeoutTimer = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const res = await fetch("/api/classify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notice_id: currentNotice.id }),
+      signal: controller.signal,
+    });
+    clearTimeout(progressTimer);
+    clearTimeout(timeoutTimer);
+
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${res.status}`);
+    }
+    const result = await res.json();
+
+    const usedRules = (result.model_used || "").startsWith("rules:");
+    state.step1 = "done";
+    state.step2 = usedRules ? "skipped" : "done";
+    pipelineEl.innerHTML = renderPipeline(state);
+
+    const card = {
+      notice_id: currentNotice.id,
+      title: result.notice.title,
+      municipality: result.notice.municipality,
+      published_on: result.notice.published_on,
+      source_url: result.notice.source_url,
+      decision: result.decision,
+      project_type: result.project_type,
+      property_type: result.property_type,
+      matched_services: result.matched_services,
+      evidence: result.evidence,
+      reason: result.reason,
+      model_used: result.model_used,
+      tier: result.tier,
+      checks: result.checks,
+    };
+    const latency = result.latency_ms != null ? `${(result.latency_ms / 1000).toFixed(1)} s` : "—";
+    const cost = result.cost_eur != null ? `€${result.cost_eur.toFixed(4)}` : "—";
+    resultEl.innerHTML = renderCard(card) +
+      `<p class="latency-line">Latency: ${latency} · Cost: ${cost}</p>`;
+  } catch (err) {
+    clearTimeout(progressTimer);
+    clearTimeout(timeoutTimer);
+    pipelineEl.style.display = "none";
+    const timedOut = err.name === "AbortError";
+    resultEl.innerHTML = `<p class="try-error">${
+      timedOut
+        ? "Classification is taking longer than expected. Please try again."
+        : "Something went wrong classifying this publication. Please try again."
+    }</p>`;
+  } finally {
+    loadBtn.disabled = false;
+    classifyBtn.disabled = !currentNotice;
+  }
+}
+
+document.getElementById("btn-load-notice").addEventListener("click", loadRandomNoticeForDemo);
+document.getElementById("btn-classify").addEventListener("click", runClassifyDemo);
+
+// Independent fetches -- the feed, and each sidebar panel -- never chained
+// to each other. A slow or failing panel never blocks the feed or its sibling.
 loadSignals();
 loadStreamStats();
-loadDecisionStats();
+loadClassifiedPanel();
 </script>
 </body>
 </html>
