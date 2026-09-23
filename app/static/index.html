@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReguLine</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>ReguLine</h1>
+    <p class="profile-line" id="profile-line">Loading profile…</p>
+    <p class="subtitle">Official Dutch publications matching this company's monitoring profile.
+      Evidence shown; commercial decisions stay human.</p>
+  </header>
+
+  <div id="status" class="status-line">Loading signals…</div>
+  <div id="feed" class="feed"></div>
+  <div id="no-text-note" class="no-text-note"></div>
+
+  <footer class="bottom">
+    <a href="/benchmark">Model evaluation &amp; benchmark →</a>
+  </footer>
+</div>
+
+<script>
+const TIER_LABELS = {
+  HIGH: "HIGH RELEVANCE",
+  MEDIUM: "MEDIUM RELEVANCE",
+  LOW: "LOW RELEVANCE",
+  NEEDS_REVIEW: "NEEDS REVIEW",
+};
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return "";
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function decidedByLabel(modelUsed, escalated) {
+  if (!modelUsed) return "Unknown";
+  if (modelUsed.startsWith("rules:")) return "Deterministic rules (no model call)";
+  return escalated ? "Nemotron Nano → gpt-oss-120b" : "Nemotron Nano";
+}
+
+function locationLine(municipality, distanceKm) {
+  const muni = municipality || "Unknown municipality";
+  if (distanceKm === null || distanceKm === undefined) {
+    return `${escapeHtml(muni)} · Location not published`;
+  }
+  return `${escapeHtml(muni)} · ${distanceKm} km`;
+}
+
+function whyItems(signal) {
+  const checks = signal.checks || {};
+  const items = [];
+  if (checks.property_match) {
+    items.push(`Monitored property type: ${escapeHtml(signal.property_type)}`);
+  }
+  if (checks.services_match) {
+    const services = (signal.matched_services || []).join(", ");
+    items.push(`Related configured services: ${escapeHtml(services)}`);
+  }
+  if (checks.inside_radius) {
+    items.push("Inside monitoring radius");
+  }
+  return items;
+}
+
+function renderCard(signal) {
+  const tierLabel = TIER_LABELS[signal.tier] || signal.tier;
+  const title = signal.project_type || signal.title || "Untitled publication";
+  const why = whyItems(signal);
+
+  const whyHtml = why.length
+    ? `<ul class="why">${why.map(w => `<li>${w}</li>`).join("")}</ul>`
+    : "";
+
+  return `
+    <article class="card">
+      <span class="tier ${escapeHtml(signal.tier)}">${escapeHtml(tierLabel)}</span>
+      <h2>${escapeHtml(title)}</h2>
+      <p class="meta-line">${locationLine(signal.municipality, signal.checks && signal.checks.distance_km)}
+        · ${escapeHtml(signal.published_on || "")}</p>
+      ${whyHtml}
+      <p class="evidence-label">Official evidence</p>
+      <blockquote class="evidence">${escapeHtml(signal.evidence)}</blockquote>
+      <p class="reason">${escapeHtml(signal.reason)}</p>
+      <p class="decided-label">Decided by</p>
+      <p class="decided-value">${decidedByLabel(signal.model_used, signal.escalated)}</p>
+      <a class="source-link" href="${escapeHtml(signal.source_url)}" target="_blank" rel="noopener">
+        View official publication →
+      </a>
+    </article>
+  `;
+}
+
+async function loadSignals() {
+  const statusEl = document.getElementById("status");
+  const feedEl = document.getElementById("feed");
+  const profileLineEl = document.getElementById("profile-line");
+  const noTextEl = document.getElementById("no-text-note");
+
+  try {
+    const res = await fetch("/api/signals?profile_id=vandijk");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const p = data.profile || {};
+    profileLineEl.textContent =
+      `${p.name || "Unknown company"} (fictional demo profile) · Electrical installation ` +
+      `· Amsterdam · ${p.radius_km !== undefined ? p.radius_km : "?"} km radius`;
+
+    if (!data.signals || data.signals.length === 0) {
+      statusEl.textContent = "No matching publications yet.";
+      statusEl.classList.remove("error");
+      feedEl.innerHTML = "";
+    } else {
+      statusEl.remove();
+      feedEl.innerHTML = data.signals.map(renderCard).join("");
+    }
+
+    if (data.no_text_count && data.no_text_count > 0) {
+      noTextEl.textContent =
+        `${data.no_text_count} publications had no retrievable text and were not classified.`;
+    }
+  } catch (err) {
+    statusEl.textContent = "Could not load signals.";
+    statusEl.classList.add("error");
+    profileLineEl.textContent = "Van Dijk Techniek (fictional demo profile)";
+  }
+}
+
+loadSignals();
+</script>
+</body>
+</html>

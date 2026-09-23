@@ -6,12 +6,24 @@ Routes so far (CONTRACTS.md SS4):
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import db
 from app.logic import rank_signals
 
+STATIC_DIR = Path(__file__).parent / "static"
+
 app = FastAPI(title="ReguLine")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/", response_class=FileResponse)
+def index() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
 
 SIGNALS_SELECT = (
     "notice_id,decision,project_type,property_type,project_stage,matched_services,"
