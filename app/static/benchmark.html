@@ -10,11 +10,11 @@
 <div class="wrap">
   <header class="top">
     <h1>ReguLine model evaluation</h1>
-    <p class="subtitle">Comparison table below is live from Supabase -- every value is a
-      real query result, never a placeholder.</p>
+    <p class="subtitle" id="subtitle">Loading…</p>
   </header>
 
   <div id="status" class="status-line">Loading benchmark…</div>
+  <div id="findings" class="findings"></div>
   <div id="table-wrap"></div>
   <p id="router-note" class="reason" style="display:none">We measured a small-model
     router and did not ship it: see recall.</p>
@@ -48,12 +48,12 @@ function pctWithCount(x, num, den) {
   return `${p} (${num}/${den})`;
 }
 
-function ms(x) {
-  return (x === null || x === undefined) ? "—" : `${Math.round(x)} ms`;
+function seconds(x) {
+  return (x === null || x === undefined) ? "—" : `${(x / 1000).toFixed(1)} s`;
 }
 
 function eur(x) {
-  return (x === null || x === undefined) ? "—" : `€${x.toFixed(4)} / 1k`;
+  return (x === null || x === undefined) ? "—" : `€${x.toFixed(2)} / 1k`;
 }
 
 const CONFIG_LABELS = {
@@ -71,28 +71,69 @@ function renderTable(rows) {
   const head = ["Config", "Items", "Accuracy", "Precision", "Recall", "F1",
                 "Escalation", "p95 latency", "Cost / 1k notices"];
   const body = rows.map(r => `
-    <tr>
-      <td>${configLabel(r.config)}</td>
+    <tr class="${r.config === "rules_large" ? "production" : ""}">
+      <td>${configLabel(r.config)}${r.config === "rules_large" ? '<span class="production-tag">In production</span>' : ""}</td>
       <td>${r.items ?? "—"}</td>
       <td>${pctWithCount(r.accuracy, r.accuracy_num, r.accuracy_den)}</td>
       <td>${pctWithCount(r.precision, r.precision_num, r.precision_den)}</td>
       <td>${pctWithCount(r.recall, r.recall_num, r.recall_den)}</td>
       <td>${pct(r.f1)}</td>
       <td>${pctWithCount(r.escalation_rate, r.escalation_num, r.escalation_den)}</td>
-      <td>${ms(r.p95_latency_ms)}</td>
+      <td>${seconds(r.p95_latency_ms)}</td>
       <td>${eur(r.cost_eur_per_1k)}</td>
     </tr>
   `).join("");
   return `
-    <table class="bench">
-      <thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead>
-      <tbody>${body}</tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="bench">
+        <thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
   `;
+}
+
+function findingCard(label, valueHtml) {
+  return `
+    <div class="finding-card">
+      <p class="finding-label">${escapeHtml(label)}</p>
+      <p class="finding-value">${valueHtml}</p>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderFindings(rows) {
+  const production = rows.find(r => r.config === "rules_large");
+  const router = rows.find(r => r.config === "router");
+  const cards = [];
+
+  if (production && production.recall_num != null && production.recall_den != null) {
+    cards.push(findingCard("Production recall",
+      `<b>${production.recall_num}/${production.recall_den}</b> real projects found`));
+  }
+
+  if (production && production.cost_eur_per_1k != null) {
+    cards.push(findingCard("Production cost",
+      `<b>€${production.cost_eur_per_1k.toFixed(2)}</b> per 1,000 notices`));
+  }
+
+  if (router && router.recall_num != null && router.recall_den != null) {
+    const missed = router.recall_den - router.recall_num;
+    cards.push(findingCard("Small-model router, measured",
+      `Missed <b>${missed}</b> of ${router.recall_den} real projects`));
+  }
+
+  return cards.join("");
 }
 
 async function loadBenchmark() {
   const statusEl = document.getElementById("status");
+  const subtitleEl = document.getElementById("subtitle");
+  const findingsEl = document.getElementById("findings");
   const tableEl = document.getElementById("table-wrap");
   const methEl = document.getElementById("methodology");
   const routerNoteEl = document.getElementById("router-note");
@@ -104,10 +145,18 @@ async function loadBenchmark() {
 
     if (!data.results || data.results.length === 0) {
       statusEl.textContent = "Results pending.";
+      subtitleEl.textContent = "";
       return;
     }
 
+    const itemCounts = data.results.map(r => r.items).filter(n => n != null);
+    const n = itemCounts.length ? Math.max(...itemCounts) : null;
+    subtitleEl.textContent = n
+      ? `${n} human-labelled official publications · results read live from our evaluation database`
+      : "Results read live from our evaluation database.";
+
     statusEl.remove();
+    findingsEl.innerHTML = renderFindings(data.results);
     tableEl.innerHTML = renderTable(data.results);
     if (data.results.some(r => r.config === "router")) {
       routerNoteEl.style.display = "block";
@@ -116,6 +165,7 @@ async function loadBenchmark() {
   } catch (err) {
     statusEl.textContent = "Could not load benchmark.";
     statusEl.classList.add("error");
+    subtitleEl.textContent = "";
   }
 }
 

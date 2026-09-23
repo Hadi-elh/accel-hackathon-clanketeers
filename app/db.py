@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -89,3 +90,21 @@ def count(table: str, query: str = "select=id") -> int:
 def get_profile(profile_id: str) -> dict | None:
     rows = select("company_profiles", f"id=eq.{profile_id}&select=*")
     return rows[0] if rows else None
+
+
+def get_notice(notice_id: str) -> dict | None:
+    """notice_id is arbitrary user input (POST /api/classify) -- quote it."""
+    safe_id = urllib.parse.quote(notice_id, safe="")
+    rows = select("notices", f"id=eq.{safe_id}&select=*")
+    return rows[0] if rows else None
+
+
+NOTICE_FIELDS = "id,title,body,municipality,rubriek,published_on,source_url,lat,lng"
+
+
+def recent_notices_with_body(min_body_chars: int = 100, sample: int = 300) -> list[dict]:
+    """Recent notices with a body over min_body_chars. PostgREST can't filter or
+    order by length()/random() directly, so fetch a recent page and filter in
+    Python -- honest (real rows, real check), just done client-side."""
+    rows = select("notices", f"select={NOTICE_FIELDS}&order=fetched_at.desc&limit={sample}")
+    return [r for r in rows if r.get("body") and len(r["body"]) > min_body_chars]
