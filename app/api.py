@@ -6,12 +6,17 @@ Routes so far (CONTRACTS.md SS4):
 """
 from __future__ import annotations
 
+import time
+from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
+from app import classify as classify_demo
 from app import db
 from app.benchmark import get_benchmark
 from app.economics import get_decision_stats, get_stream_stats
@@ -21,6 +26,33 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="ReguLine")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# /api/classify calls a real paid model per request and is reachable by anyone
+# on the page -- a minimal in-memory cap so a stray refresh-spam doesn't run
+# up a bill during the pitch. Not persistent, not distributed; fine for a
+# single-process demo deployment.
+_CLASSIFY_RATE_WINDOW_S = 300
+_CLASSIFY_RATE_LIMIT = 5
+_classify_calls: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_classify_rate_limit(client_ip: str) -> None:
+    now = time.time()
+    calls = _classify_calls[client_ip]
+    calls[:] = [t for t in calls if now - t < _CLASSIFY_RATE_WINDOW_S]
+    if len(calls) >= _CLASSIFY_RATE_LIMIT:
+        raise HTTPException(429, "Too many live-classify requests. Try again in a few minutes.")
+    calls.append(now)
+
+
+class ClassifyRequest(BaseModel):
+    # Optional[str], not `str | None`: pydantic evaluates annotations eagerly to
+    # build its schema, so PEP 604 unions break under Python 3.9 regardless of
+    # `from __future__ import annotations`. Optional[] is equivalent and portable.
+    notice_id: Optional[str] = None
+    title: Optional[str] = None
+    body: Optional[str] = None
+    municipality: Optional[str] = None
 
 
 @app.get("/", response_class=FileResponse)
@@ -57,6 +89,31 @@ SIGNALS_SELECT = (
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/random_notice")
+def api_random_notice() -> dict:
+    notice = classify_demo.pick_random_notice()
+    if notice is None:
+        raise HTTPException(503, "No suitable notice available right now.")
+    return notice
+
+
+@app.post("/api/classify")
+def api_classify(payload: ClassifyRequest, request: Request) -> dict:
+    client_ip = request.client.host if request.client else "unknown"
+    _check_classify_rate_limit(client_ip)
+    try:
+        return classify_demo.classify(
+            notice_id=payload.notice_id, title=payload.title,
+            body=payload.body, municipality=payload.municipality,
+        )
+    except classify_demo.NotFound as e:
+        raise HTTPException(404, str(e))
+    except classify_demo.BadRequest as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
 
 
 @app.get("/api/signals")

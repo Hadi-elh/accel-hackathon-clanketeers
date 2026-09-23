@@ -19,6 +19,17 @@
 
   <div class="layout">
     <main class="feed-col">
+      <section class="try-it" id="try-it">
+        <h3>Try it live</h3>
+        <div class="try-it-buttons">
+          <button class="btn" id="btn-load-notice">Load a real publication</button>
+          <button class="btn btn-primary" id="btn-classify" disabled>Classify now</button>
+        </div>
+        <div class="notice-preview" id="notice-preview" style="display:none"></div>
+        <div class="pipeline" id="pipeline" style="display:none"></div>
+        <div class="try-it-result" id="try-it-result"></div>
+      </section>
+
       <div class="tabs" id="tabs"></div>
       <div id="status" class="status-line">Loading signals…</div>
       <div id="feed" class="feed"></div>
@@ -286,6 +297,143 @@ async function loadClassifiedPanel() {
     el.textContent = "—";
   }
 }
+
+// ---------------------------------------------------------------- try it live
+let currentNotice = null;
+
+function truncate(s, n) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n).trimEnd() + "…" : s;
+}
+
+function renderNoticePreview(n) {
+  return `
+    <p class="np-title">${escapeHtml(n.title || "Untitled publication")}</p>
+    <p class="np-meta">${escapeHtml(n.municipality || "Unknown municipality")}
+      · ${escapeHtml(n.published_on || "")}</p>
+    <p class="np-body">${escapeHtml(truncate(n.body, 400))}</p>
+  `;
+}
+
+function renderPipeline(state) {
+  // state.step1, state.step2 in {"pending","active","done","skipped"}
+  const label1 = "Deterministic rules";
+  const label2 = "gpt-oss-120b on Nebius";
+  return `
+    <span class="pipeline-step ${state.step1}">${label1}</span>
+    <span class="pipeline-step ${state.step2}">${label2}</span>
+  `;
+}
+
+async function loadRandomNoticeForDemo() {
+  const previewEl = document.getElementById("notice-preview");
+  const classifyBtn = document.getElementById("btn-classify");
+  const resultEl = document.getElementById("try-it-result");
+  const pipelineEl = document.getElementById("pipeline");
+
+  previewEl.style.display = "none";
+  pipelineEl.style.display = "none";
+  resultEl.innerHTML = "";
+  classifyBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/random_notice");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    currentNotice = await res.json();
+    previewEl.innerHTML = renderNoticePreview(currentNotice);
+    previewEl.style.display = "block";
+    classifyBtn.disabled = false;
+  } catch (err) {
+    resultEl.innerHTML = `<p class="try-error">Could not load a publication. Try again.</p>`;
+  }
+}
+
+async function runClassifyDemo() {
+  if (!currentNotice) return;
+  const loadBtn = document.getElementById("btn-load-notice");
+  const classifyBtn = document.getElementById("btn-classify");
+  const pipelineEl = document.getElementById("pipeline");
+  const resultEl = document.getElementById("try-it-result");
+
+  loadBtn.disabled = true;
+  classifyBtn.disabled = true;
+  resultEl.innerHTML = "";
+  pipelineEl.style.display = "flex";
+  const state = { step1: "active", step2: "pending" };
+  pipelineEl.innerHTML = renderPipeline(state);
+
+  // Optimistic progress: rules is real and instant; the large-model call is
+  // the real next step in the overwhelming majority of cases. The FINAL
+  // state below is always corrected to match the real model_used, so this
+  // is just a progress indicator during the wait, never a false claim.
+  const progressTimer = setTimeout(() => {
+    state.step1 = "done";
+    state.step2 = "active";
+    pipelineEl.innerHTML = renderPipeline(state);
+  }, 400);
+
+  const controller = new AbortController();
+  const timeoutTimer = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const res = await fetch("/api/classify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notice_id: currentNotice.id }),
+      signal: controller.signal,
+    });
+    clearTimeout(progressTimer);
+    clearTimeout(timeoutTimer);
+
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${res.status}`);
+    }
+    const result = await res.json();
+
+    const usedRules = (result.model_used || "").startsWith("rules:");
+    state.step1 = "done";
+    state.step2 = usedRules ? "skipped" : "done";
+    pipelineEl.innerHTML = renderPipeline(state);
+
+    const card = {
+      notice_id: currentNotice.id,
+      title: result.notice.title,
+      municipality: result.notice.municipality,
+      published_on: result.notice.published_on,
+      source_url: result.notice.source_url,
+      decision: result.decision,
+      project_type: result.project_type,
+      property_type: result.property_type,
+      matched_services: result.matched_services,
+      evidence: result.evidence,
+      reason: result.reason,
+      model_used: result.model_used,
+      tier: result.tier,
+      checks: result.checks,
+    };
+    const latency = result.latency_ms != null ? `${(result.latency_ms / 1000).toFixed(1)} s` : "—";
+    const cost = result.cost_eur != null ? `€${result.cost_eur.toFixed(4)}` : "—";
+    resultEl.innerHTML = renderCard(card) +
+      `<p class="latency-line">Latency: ${latency} · Cost: ${cost}</p>`;
+  } catch (err) {
+    clearTimeout(progressTimer);
+    clearTimeout(timeoutTimer);
+    pipelineEl.style.display = "none";
+    const timedOut = err.name === "AbortError";
+    resultEl.innerHTML = `<p class="try-error">${
+      timedOut
+        ? "Classification is taking longer than expected. Please try again."
+        : "Something went wrong classifying this publication. Please try again."
+    }</p>`;
+  } finally {
+    loadBtn.disabled = false;
+    classifyBtn.disabled = !currentNotice;
+  }
+}
+
+document.getElementById("btn-load-notice").addEventListener("click", loadRandomNoticeForDemo);
+document.getElementById("btn-classify").addEventListener("click", runClassifyDemo);
 
 // Independent fetches -- the feed, and each sidebar panel -- never chained
 // to each other. A slow or failing panel never blocks the feed or its sibling.
