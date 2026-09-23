@@ -34,7 +34,7 @@ RUNS_DIR = Path(__file__).with_name("runs")
 BORDERLINE_FILE = Path(__file__).with_name("borderline.txt")  # optional: one notice_id per line
 OUT_OF_SCOPE_FILE = Path(__file__).with_name("out_of_scope.txt")  # prefilter drops these before any model call
 # /CONTRACTS.md §5. Add "baseline_open" only once CONTRACTS.md lists it.
-DB_CONFIGS = {"small", "large", "router", "baseline_closed", "finetuned"}
+DB_CONFIGS = {"small", "large", "router", "rules_large", "baseline_closed", "baseline_open"}
 DECISIONS = {"relevant", "irrelevant", "uncertain"}
 POSITIVE = {"relevant", "uncertain"}  # uncertain is surfaced for review, so it counts as positive
 _sb_client = None
