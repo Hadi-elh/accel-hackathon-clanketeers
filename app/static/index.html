@@ -29,6 +29,7 @@
   <div id="status" class="status-line">Loading signals…</div>
   <div id="feed" class="feed"></div>
   <div id="no-text-note" class="no-text-note"></div>
+  <div id="failed-note" class="no-text-note"></div>
 
   <footer class="bottom">
     <a href="/benchmark">Model evaluation &amp; benchmark →</a>
@@ -50,10 +51,12 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-function decidedByLabel(modelUsed, escalated) {
-  if (!modelUsed) return "Unknown";
+function decidedByLabel(modelUsed) {
+  if (!modelUsed || modelUsed === "none") return "Classification failed";
   if (modelUsed.startsWith("rules:")) return "Deterministic rules (no model call)";
-  return escalated ? "Nemotron Nano → gpt-oss-120b" : "Nemotron Nano";
+  if (modelUsed.includes("gpt-oss")) return "gpt-oss-120b";
+  if (modelUsed.includes("Nemotron")) return "Nemotron Nano";
+  return modelUsed;
 }
 
 function locationLine(municipality, distanceKm) {
@@ -100,7 +103,7 @@ function renderCard(signal) {
       <blockquote class="evidence">${escapeHtml(signal.evidence)}</blockquote>
       <p class="reason">${escapeHtml(signal.reason)}</p>
       <p class="decided-label">Decided by</p>
-      <p class="decided-value">${decidedByLabel(signal.model_used, signal.escalated)}</p>
+      <p class="decided-value">${decidedByLabel(signal.model_used)}</p>
       <a class="source-link" href="${escapeHtml(signal.source_url)}" target="_blank" rel="noopener">
         View official publication →
       </a>
@@ -113,6 +116,7 @@ async function loadSignals() {
   const feedEl = document.getElementById("feed");
   const profileLineEl = document.getElementById("profile-line");
   const noTextEl = document.getElementById("no-text-note");
+  const failedEl = document.getElementById("failed-note");
 
   try {
     const res = await fetch("/api/signals?profile_id=vandijk");
@@ -136,6 +140,9 @@ async function loadSignals() {
     if (data.no_text_count && data.no_text_count > 0) {
       noTextEl.textContent =
         `${data.no_text_count} publications had no retrievable text and were not classified.`;
+    }
+    if (data.failed_count && data.failed_count > 0) {
+      failedEl.textContent = `${data.failed_count} publications could not be classified.`;
     }
   } catch (err) {
     statusEl.textContent = "Could not load signals.";
@@ -166,14 +173,16 @@ function renderDecisionStats(d) {
   const cost = (d.total_cost_eur === null || d.total_cost_eur === undefined)
     ? na : `€${d.total_cost_eur.toFixed(4)}`;
   const rows = [
-    panelRow("Deterministic rules", `${d.rule_rejected ?? na} · €0 · no model call`),
-    panelRow("Nemotron Nano", d.nemotron_only ?? na),
-    panelRow("Escalated to gpt-oss-120b", d.escalated ?? na),
-    panelRow("Total model cost", cost),
-  ].join("");
+    panelRow("Deterministic rules · €0 · no model call", d.rule_rejected ?? na),
+    panelRow("gpt-oss-120b", d.gpt_oss ?? na),
+  ];
+  if (d.nemotron) {
+    rows.push(panelRow("Nemotron Nano", d.nemotron));
+  }
+  rows.push(panelRow("Total model cost", cost));
   const lastScan = (d.source === "scan_runs" && d.last_scan)
     ? `<div class="last-scan">Last scan: ${escapeHtml(d.last_scan)}</div>` : "";
-  return rows + lastScan;
+  return rows.join("") + lastScan;
 }
 
 async function loadStreamStats() {

@@ -63,13 +63,25 @@ def compute_tier(decision: str, checks: dict) -> str:
     return "LOW"
 
 
+def is_no_text(row: dict) -> bool:
+    return row.get("error") == "empty_or_short_body"
+
+
+def is_failed(row: dict) -> bool:
+    """Any other non-null error -- classification failed for a reason that isn't
+    "no text to classify". Counted separately as failed_count, never shown as a card."""
+    error = row.get("error")
+    return error is not None and error != "empty_or_short_body"
+
+
 def build_signal(row: dict, profile: dict) -> dict | None:
     """One `signals` row (with an embedded `notices` object) -> one API card, or
     None if this row is excluded from the feed entirely:
     - error == 'empty_or_short_body' (counted separately as no_text_count)
+    - any other non-null error (counted separately as failed_count)
     - decision == 'irrelevant'
     """
-    if row.get("error") == "empty_or_short_body":
+    if is_no_text(row) or is_failed(row):
         return None
     decision = row.get("decision")
     if decision == "irrelevant":

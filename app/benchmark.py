@@ -62,7 +62,11 @@ def get_benchmark() -> list[dict]:
             "expected_decision": ei.get("expected_decision"),
         })
 
-    configs = sorted(set(view_rows) | set(by_config))
+    # rules_large is the production configuration -- listed first. router/small/large
+    # follow in that order (matches the story: what we measured, then the two single-
+    # model baselines). Unknown configs sort alphabetically after the known ones.
+    priority = {"rules_large": 0, "router": 1, "small": 2, "large": 3}
+    configs = sorted(set(view_rows) | set(by_config), key=lambda c: (priority.get(c, 99), c))
     results = []
     for cfg in configs:
         view = view_rows.get(cfg, {})

@@ -16,6 +16,8 @@
 
   <div id="status" class="status-line">Loading benchmark…</div>
   <div id="table-wrap"></div>
+  <p id="router-note" class="reason" style="display:none">We measured a small-model
+    router and did not ship it: see recall.</p>
 
   <div id="methodology" class="methodology" style="display:none">
     <h3>Methodology</h3>
@@ -54,12 +56,23 @@ function eur(x) {
   return (x === null || x === undefined) ? "—" : `€${x.toFixed(4)} / 1k`;
 }
 
+const CONFIG_LABELS = {
+  rules_large: "Production: rules + gpt-oss-120b",
+  router: "Router: rules + Nemotron Nano → gpt-oss-120b (measured, not used)",
+  small: "Nemotron Nano alone",
+  large: "gpt-oss-120b alone",
+};
+
+function configLabel(config) {
+  return CONFIG_LABELS[config] || config;
+}
+
 function renderTable(rows) {
   const head = ["Config", "Items", "Accuracy", "Precision", "Recall", "F1",
                 "Escalation", "p95 latency", "Cost / 1k notices"];
   const body = rows.map(r => `
     <tr>
-      <td>${r.config}</td>
+      <td>${configLabel(r.config)}</td>
       <td>${r.items ?? "—"}</td>
       <td>${pctWithCount(r.accuracy, r.accuracy_num, r.accuracy_den)}</td>
       <td>${pctWithCount(r.precision, r.precision_num, r.precision_den)}</td>
@@ -82,6 +95,7 @@ async function loadBenchmark() {
   const statusEl = document.getElementById("status");
   const tableEl = document.getElementById("table-wrap");
   const methEl = document.getElementById("methodology");
+  const routerNoteEl = document.getElementById("router-note");
 
   try {
     const res = await fetch("/api/benchmark");
@@ -95,6 +109,9 @@ async function loadBenchmark() {
 
     statusEl.remove();
     tableEl.innerHTML = renderTable(data.results);
+    if (data.results.some(r => r.config === "router")) {
+      routerNoteEl.style.display = "block";
+    }
     methEl.style.display = "block";
   } catch (err) {
     statusEl.textContent = "Could not load benchmark.";

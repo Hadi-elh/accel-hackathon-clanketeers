@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from app.logic import build_signal, compute_checks, compute_tier, rank_signals
+from app.logic import build_signal, compute_checks, is_failed, is_no_text, rank_signals
 
 PROFILE = {
     "lat": 52.3702, "lng": 4.8952, "radius_km": 35,
@@ -71,10 +71,18 @@ def main() -> None:
     # Excluded: empty_or_short_body, even if decision looks relevant
     row = {**signal(error="empty_or_short_body"), "notices": notice()}
     ok(build_signal(row, PROFILE) is None, "empty_or_short_body is excluded regardless of decision")
+    ok(is_no_text(row) and not is_failed(row), "empty_or_short_body is no_text, not failed")
+
+    # Excluded: any other non-null error, even if decision looks relevant -- counted
+    # as failed, not no_text
+    row = {**signal(error="escalation_failed: evidence_not_verbatim"), "notices": notice()}
+    ok(build_signal(row, PROFILE) is None, "a non-empty_or_short_body error is also excluded")
+    ok(is_failed(row) and not is_no_text(row), "other error is failed, not no_text")
 
     # uncertain rows are NOT excluded by the irrelevant rule
     row = {**signal(decision="uncertain", error=None), "notices": notice()}
     ok(build_signal(row, PROFILE) is not None, "uncertain (no error) is not excluded")
+    ok(not is_no_text(row) and not is_failed(row), "no error -> neither no_text nor failed")
 
     # No coordinates -> distance_km and inside_radius both null
     row = {**signal(), "notices": notice(lat=None, lng=None)}
@@ -100,14 +108,16 @@ def main() -> None:
        "tier order: HIGH, MEDIUM, LOW, NEEDS_REVIEW")
     ok(ranked[0]["published_on"] == "2026-09-23", "within HIGH, most recent published_on first")
 
-    # rank_signals end to end: irrelevant dropped, order applied
+    # rank_signals end to end: irrelevant, no_text and failed rows all dropped
     rows = [
         {**signal(decision="irrelevant"), "notices": notice()},
         {**signal(decision="uncertain"), "notices": notice(), "notice_id": "n2"},
         {**signal(), "notices": notice(), "notice_id": "n3"},
+        {**signal(error="empty_or_short_body"), "notices": notice(), "notice_id": "n4"},
+        {**signal(error="router_exception: boom"), "notices": notice(), "notice_id": "n5"},
     ]
     ranked = rank_signals(rows, PROFILE)
-    ok(len(ranked) == 2, "rank_signals drops the irrelevant row")
+    ok(len(ranked) == 2, "rank_signals drops irrelevant, no_text and failed rows")
     ok(ranked[0]["notice_id"] == "n3" and ranked[0]["tier"] == "HIGH", "HIGH card ranked first")
     ok(ranked[1]["tier"] == "NEEDS_REVIEW", "NEEDS_REVIEW card ranked last")
 

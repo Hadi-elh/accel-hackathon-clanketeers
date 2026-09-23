@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from app import db
 from app.benchmark import get_benchmark
 from app.economics import get_decision_stats, get_stream_stats
-from app.logic import rank_signals
+from app.logic import is_failed, is_no_text, rank_signals
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -66,7 +66,8 @@ def get_signals(profile_id: str = "vandijk") -> dict:
         raise HTTPException(404, f"Unknown profile_id: {profile_id}")
 
     rows = db.select("signals", f"profile_id=eq.{profile_id}&select={SIGNALS_SELECT}")
-    no_text_count = sum(1 for r in rows if r.get("error") == "empty_or_short_body")
+    no_text_count = sum(1 for r in rows if is_no_text(r))
+    failed_count = sum(1 for r in rows if is_failed(r))
     signals = rank_signals(rows, profile)
 
     return {
@@ -80,5 +81,6 @@ def get_signals(profile_id: str = "vandijk") -> dict:
         "funnel": None,
         "scanned_at": None,
         "no_text_count": no_text_count,
+        "failed_count": failed_count,
         "signals": signals,
     }

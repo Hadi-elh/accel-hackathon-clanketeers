@@ -106,24 +106,29 @@ def get_stream_stats(profile_id: str = "vandijk") -> dict:
 
 # ------------------------------------------------------------- decision stats
 def decision_counts(rows: list[dict]) -> dict:
-    """rows: [{"model_used": ..., "escalated": ...}, ...] for one profile's
-    signals. Pure -- no I/O, so directly testable."""
+    """rows: [{"model_used": ...}, ...] for one profile's signals. Pure -- no I/O.
+
+    Classified strictly by model_used content, matching decidedByLabel() in
+    index.html -- production is rules -> gpt-oss-120b, so "escalated" is not
+    a meaningful distinction any more. Nemotron is the measured-but-not-shipped
+    router tier; it should read 0 against current production data.
+    """
     rule_rejected = 0
-    nemotron_only = 0
-    escalated = 0
+    gpt_oss = 0
+    nemotron = 0
     for r in rows:
         model_used = r.get("model_used") or ""
         if model_used.startswith("rules:"):
             rule_rejected += 1
-        elif r.get("escalated"):
-            escalated += 1
-        else:
-            nemotron_only += 1
-    return {"rule_rejected": rule_rejected, "nemotron_only": nemotron_only, "escalated": escalated}
+        elif "gpt-oss" in model_used:
+            gpt_oss += 1
+        elif "Nemotron" in model_used:
+            nemotron += 1
+    return {"rule_rejected": rule_rejected, "gpt_oss": gpt_oss, "nemotron": nemotron}
 
 
 def _live_decision_stats(profile_id: str) -> dict:
-    signal_rows = db.select("signals", f"profile_id=eq.{profile_id}&select=model_used,escalated")
+    signal_rows = db.select("signals", f"profile_id=eq.{profile_id}&select=model_used")
     counts = decision_counts(signal_rows)
 
     cost_rows = db.select("model_runs", f"profile_id=eq.{profile_id}&select=cost_eur")
@@ -136,15 +141,14 @@ def _live_decision_stats(profile_id: str) -> dict:
 
 
 def _decision_stats_from_scan_run(scan: dict) -> dict:
-    ai_analysed = scan.get("ai_analysed")
-    escalated = scan.get("escalated")
-    nemotron_only = (
-        None if ai_analysed is None or escalated is None else ai_analysed - escalated
-    )
+    # scan_runs (schema.sql) has no column split by model_used content -- ai_analysed
+    # is the closest real number, and in the current (rules -> gpt-oss-120b) production
+    # path it's all gpt-oss-120b. There's no way to derive a real Nemotron count from
+    # scan_runs, so it's None (unknown), never a guessed 0.
     return {
         "rule_rejected": scan.get("rule_rejected"),
-        "nemotron_only": nemotron_only,
-        "escalated": escalated,
+        "gpt_oss": scan.get("ai_analysed"),
+        "nemotron": None,
         "total_cost_eur": scan.get("cost_eur"),
         "source": "scan_runs",
         "last_scan": scan.get("scan_date"),
@@ -158,5 +162,5 @@ def get_decision_stats(profile_id: str = "vandijk") -> dict:
     try:
         return _live_decision_stats(profile_id)
     except Exception:
-        return {"rule_rejected": None, "nemotron_only": None, "escalated": None,
+        return {"rule_rejected": None, "gpt_oss": None, "nemotron": None,
                 "total_cost_eur": None, "source": "live", "last_scan": None}
