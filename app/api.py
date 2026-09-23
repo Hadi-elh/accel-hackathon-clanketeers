@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import db
+from app.benchmark import get_benchmark
 from app.logic import rank_signals
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -24,6 +25,16 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/", response_class=FileResponse)
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/benchmark", response_class=FileResponse)
+def benchmark_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "benchmark.html")
+
+
+@app.get("/api/benchmark")
+def api_benchmark() -> dict:
+    return {"results": get_benchmark()}
 
 SIGNALS_SELECT = (
     "notice_id,decision,project_type,property_type,project_stage,matched_services,"
