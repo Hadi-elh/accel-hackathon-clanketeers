@@ -2,6 +2,7 @@
 Re-run after every change to rules.py or router.py."""
 import os; os.environ["NEBIUS_API_KEY"]="k"
 import models.router as R, models.rules as rules
+R.USE_SMALL = True  # scenarios below test the small -> large path
 from models.client import validate
 P={"id":"vandijk","services":["commercial electrical installations","EV charging infrastructure","access control systems","commercial lighting"],
    "excluded_project_types":["single-family minor renovation","tree removal","events","private gardens"]}
@@ -33,6 +34,9 @@ def run(name, n, plan, profile=P, **kw):
           f"trig={tr['triggers']} rule={tr['rule']} hits={tr['positive_hits']} err={out.get('error')} ev_ok={bool(ev_ok)}")
     return out
 
+o=run("product path: no small", OFFICE, [("large", mk(OFFICE,"relevant",0.9),None)], use_small=False)
+assert o["model_used"]=="large-id" and o["escalated"] is False and o["decision"]=="relevant"
+o=run("product path: rules first", TREE, [], use_small=False); assert o["model_used"].startswith("rules:")
 o=run("tree alone -> rules", TREE, [])
 print("   evidence:", repr(o["evidence"]), "stage:", o["project_stage"])
 run("trees + 40 appartementen", MIXED, [("small", mk(MIXED,"relevant",0.93),None)])
