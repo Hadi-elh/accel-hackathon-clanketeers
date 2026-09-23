@@ -18,10 +18,11 @@ from pathlib import Path
 
 from ingest import koop_client
 from ingest.prefilter import prefilter, prefilter_stats  # noqa: F401 (re-exported, CONTRACTS.md SS4)
+from ingest.prefilter import prefilter_stats_for_date  # noqa: F401 (additive, not part of the frozen contract)
 
 DEFAULT_FETCH_LIMIT = 500  # keep hackathon runs fast; raise for full daily volume
 
-__all__ = ["fetch_notices", "prefilter_stats", "fetch_raw_notices"]
+__all__ = ["fetch_notices", "prefilter_stats", "prefilter_stats_for_date", "fetch_raw_notices"]
 
 
 def _resolve_date(value: str) -> str:

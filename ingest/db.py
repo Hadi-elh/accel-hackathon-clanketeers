@@ -87,8 +87,30 @@ def upsert_notices(notices: list[dict]) -> int:
 
 
 def fetch_all_notices() -> list[dict]:
-    result = _request("GET", "notices?select=id,rubriek,lat,lng")
-    return result or []
+    """All notices (id, rubriek, lat/lng, municipality, published_on).
+    Paginates past PostgREST's default 1000-row cap -- a plain unpaginated
+    GET silently truncated the funnel to an arbitrary slice once the table
+    passed 1000 rows."""
+    url, key = _config()
+    page_size = 1000
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        req = urllib.request.Request(
+            f"{url}/rest/v1/notices?select=id,rubriek,lat,lng,municipality,published_on",
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Range": f"{offset}-{offset + page_size - 1}",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            page = json.loads(resp.read())
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return rows
 
 
 def get_profile(profile_id: str) -> dict:
