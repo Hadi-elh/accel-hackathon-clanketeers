@@ -124,9 +124,10 @@ def run_one(item: dict, profile: dict, config: str, threshold: float) -> dict:
         "rule": tri.rule, "rule_reject": tri.reject is not None, "positive_hits": tri.positive_hits,
         "body_chars": len(body), "ts": datetime.now(timezone.utc).isoformat(), "run_error": None,
     }
-    if config == "router":
+    if config in ("router", "rules_large"):
         tr: dict = {}
-        out = classify_notice(notice, profile, threshold=threshold, trace=tr)
+        out = classify_notice(notice, profile, threshold=threshold, trace=tr,
+                              use_small=(config == "router"))  # rules_large = product path
         result = {k: out.get(k) for k in CONTRACT_KEYS}
         rec.update(decision=out["decision"], parsed=True, errors=[], error=out.get("error"),
                    escalated=out["escalated"], decided_by=tr.get("decided_by"),
@@ -221,8 +222,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="router only: upsert each result into the signals table for the UI")
     a = ap.parse_args(argv)
 
-    if a.write_signals and a.config != "router":
-        ap.error("--write-signals only makes sense with --config router")
+    if a.write_signals and a.config not in ("router", "rules_large"):
+        ap.error("--write-signals only makes sense with --config router or rules_large")
     run_name = a.run_name or a.config
     RUNS_DIR.mkdir(exist_ok=True)
     path = RUNS_DIR / f"{run_name}.jsonl"
