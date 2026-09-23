@@ -1,0 +1,3 @@
+# Local debugging logs: raw model outputs and fallback telemetry. Never committed.
+*.local.jsonl
+__pycache__/
