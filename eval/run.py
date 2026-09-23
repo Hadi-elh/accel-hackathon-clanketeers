@@ -144,6 +144,30 @@ def run_one(item: dict, profile: dict, config: str, threshold: float) -> dict:
     return rec
 
 
+NOTICE_COLUMNS = ("id", "source_url", "title", "body", "published_on", "municipality", "rubriek",
+                  "lat", "lng")
+
+
+def _upsert_signal(rec: dict, notice: dict, profile_id: str) -> None:
+    """Router output -> signals row (unique on notice_id, profile_id, so reruns update).
+    signals.notice_id is a foreign key, so the notice row is inserted first if it is missing;
+    ignore_duplicates means an existing notice row (A's data) is never overwritten."""
+    try:
+        _sb().table("notices").upsert({k: notice.get(k) for k in NOTICE_COLUMNS},
+                                      on_conflict="id", ignore_duplicates=True).execute()
+        r = rec.get("result") or {}
+        _sb().table("signals").upsert({
+            "notice_id": rec["notice_id"], "profile_id": profile_id,
+            "decision": rec["decision"], "confidence": r.get("confidence"),
+            "project_type": r.get("project_type"), "property_type": r.get("property_type"),
+            "project_stage": r.get("project_stage"), "matched_services": r.get("matched_services") or [],
+            "evidence": r.get("evidence"), "reason": r.get("reason"),
+            "escalated": rec.get("escalated", False), "model_used": rec.get("model_used"),
+            "error": rec.get("error")}, on_conflict="notice_id,profile_id").execute()
+    except Exception as e:
+        print(f"[run] signals upsert failed for {rec.get('notice_id')}: {e}", file=sys.stderr)
+
+
 def _insert_eval_result(rec: dict) -> None:
     try:
         _sb().table("eval_results").insert({
@@ -183,8 +207,12 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--max-eur", type=float, default=0.25)
     ap.add_argument("--no-db", action="store_true", help="never write eval_results")
     ap.add_argument("--fresh", action="store_true", help="archive the old JSONL and start over")
+    ap.add_argument("--write-signals", action="store_true",
+                    help="router only: upsert each result into the signals table for the UI")
     a = ap.parse_args(argv)
 
+    if a.write_signals and a.config != "router":
+        ap.error("--write-signals only makes sense with --config router")
     run_name = a.run_name or a.config
     RUNS_DIR.mkdir(exist_ok=True)
     path = RUNS_DIR / f"{run_name}.jsonl"
@@ -222,6 +250,8 @@ def main(argv: list[str] | None = None) -> None:
                    "run_error": f"{type(e).__name__}: {e}"[:500]}
         if write_db and rec.get("run_error") is None:
             _insert_eval_result(rec)
+        if a.write_signals and rec.get("run_error") is None:
+            _upsert_signal(rec, item["notice"], a.profile)
         with lock:
             state["spent"] += rec.get("cost_eur") or 0.0
             state["n"] += 1

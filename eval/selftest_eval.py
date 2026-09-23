@@ -144,6 +144,31 @@ def main() -> None:
         R.main(["--config", "large", "--items-file", str(items_file)])
         R.main(["--config", "router", "--items-file", str(items_file)])
 
+        print("signals")
+        writes = []
+        class FakeTable:
+            def __init__(self, name): self.name = name
+            def upsert(self, row, **kw): writes.append((self.name, row, kw)); return self
+            def execute(self): return self
+        class FakeSB:
+            def table(self, name): return FakeTable(name)
+        real_sb = R._sb
+        R._sb = lambda: FakeSB()
+        R.main(["--config", "router", "--items-file", str(items_file), "--run-name", "sig",
+                "--write-signals", "--workers", "1"])
+        R._sb = real_sb
+        sigs = [w for w in writes if w[0] == "signals"]
+        ok(len(sigs) == 20 and len([w for w in writes if w[0] == "notices"]) == 20,
+           "20 signals upserted, each after its notice row")
+        ok(writes[0][0] == "notices" and writes[0][2].get("ignore_duplicates") is True,
+           "notice row written first and never overwrites existing data")
+        ok(all(w[2]["on_conflict"] == "notice_id,profile_id" for w in sigs), "signals upsert is rerun-safe")
+        ok(sum(w[1]["model_used"] == "rules:r2" for w in sigs) == 5, "rule rejections stored as rules:r2")
+        ok(set(sigs[0][1]) == {"notice_id", "profile_id", "decision", "confidence", "project_type",
+                               "property_type", "project_stage", "matched_services", "evidence",
+                               "reason", "escalated", "model_used", "error"},
+           "signals row has exactly the schema.sql columns")
+
         print("metrics")
         small, _ = M.load("small")
         s = M.summarize(list(small.values()))
