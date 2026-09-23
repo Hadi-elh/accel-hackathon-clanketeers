@@ -38,26 +38,31 @@ def prefilter(
 ) -> tuple[list[dict], dict]:
     """Apply the deterministic prefilter (radius check + rubriek allowlist).
 
-    Returns (kept_notices, funnel) where funnel matches CONTRACTS.md SS4:
-    {"fetched", "in_region", "plausible_rubriek", "location_unknown"}.
-    `in_region` and `plausible_rubriek` describe the known-location subset
-    (a decreasing funnel); `location_unknown` is a separate diagnostic count
-    -- those notices are never silently dropped by default, they still pass
-    the rubriek check and enter `kept`, but since we cannot verify their
-    geography they don't count toward `in_region`/`plausible_rubriek`.
+    Returns (kept_notices, funnel). funnel always satisfies:
+        len(kept_notices) == plausible_rubriek + location_unknown_kept
+    `in_region`/`plausible_rubriek` describe the known-location subset (a
+    decreasing funnel). `location_unknown` is a diagnostic count of ALL
+    unknown-location notices not dropped by municipality -- it is NOT
+    rubriek-filtered and is therefore >= location_unknown_kept, its subset
+    that actually passed the rubriek check and entered `kept`. Keep both:
+    location_unknown answers "how many are we geography-blind on", while
+    location_unknown_kept is the piece that actually reaches the model.
 
     `municipality_classification` (see municipalities_in_radius()) is
     optional and, when given, actively drops location_unknown notices whose
     municipality is empirically 'out' of radius (every real coordinate ever
     observed for that municipality was outside radius_km) -- these are
     counted separately as `dropped_by_municipality`, never silently merged
-    into `location_unknown`, so the funnel still shows why they left.
+    into `location_unknown`. 'in' / 'mixed' / 'insufficient_data' / no
+    classification all fall through unchanged (kept if rubriek matches) --
+    only a confirmed 'out' classification drops a notice.
     """
     allowed = allowed_rubrieken or ALLOWED_RUBRIEKEN
     fetched = len(notices)
     in_region = 0
     plausible_rubriek = 0
     location_unknown = 0
+    location_unknown_kept = 0
     dropped_by_municipality = 0
     kept: list[dict] = []
 
@@ -74,6 +79,7 @@ def prefilter(
                 continue
             location_unknown += 1
             if rubriek_ok:
+                location_unknown_kept += 1
                 kept.append(n)
             continue
 
@@ -86,11 +92,14 @@ def prefilter(
             plausible_rubriek += 1
             kept.append(n)
 
+    assert len(kept) == plausible_rubriek + location_unknown_kept
+
     funnel = {
         "fetched": fetched,
         "in_region": in_region,
         "plausible_rubriek": plausible_rubriek,
         "location_unknown": location_unknown,
+        "location_unknown_kept": location_unknown_kept,
         "dropped_by_municipality": dropped_by_municipality,
     }
     return kept, funnel
