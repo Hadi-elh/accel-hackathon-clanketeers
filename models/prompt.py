@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-PROMPT_VERSION = "v2"  # v2: monitoring-profile framing, exact property types
+PROMPT_VERSION = "v3"  # v3: withdrawn / not-processed applications are irrelevant (labelling guideline)
 MAX_BODY_CHARS = 6000  # bounds input cost; evidence from the kept part is still a substring
 
 _SCHEMA = json.loads(Path(__file__).with_name("schema.json").read_text())
@@ -29,6 +29,7 @@ Location is already filtered upstream. Do not judge distance.
 DECISION
 - relevant: building activity on a monitored property type (new build, transformation, renovation, extension, change of use, EV charging, large installations) that at least one configured service plausibly relates to.
 - irrelevant: no match with the profile, or clearly an excluded type: e.g. a dakkapel on a single home, tree felling, events, private gardens, traffic or parking decisions.
+- An application that was withdrawn ("ingetrokken") or not processed ("buiten behandeling gesteld") describes no project: irrelevant.
 - uncertain: it could match the profile but the notice lacks the detail to tell. If torn between relevant and irrelevant, choose uncertain, never irrelevant. A missed match costs far more than a false alarm.
 
 EVIDENCE, required for every decision

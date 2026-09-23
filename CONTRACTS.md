@@ -176,9 +176,10 @@ would be ~95% irrelevant and a model that always says "irrelevant" would score 9
 may be model-generated).
 
 Config names used in `eval_results.config`, exactly these strings:
-`"small"`, `"large"`, `"router"`, `"baseline_closed"`, `"baseline_open"`.
+`"small"`, `"large"`, `"router"`, `"baseline_closed"`, `"baseline_open"`, `"rules_large"`.
 (`"finetuned"` is dropped: Nemotron 3 Nano has no LoRA fine-tuning on Nebius — see
-`/models/PRICES.md`.)
+`/models/PRICES.md`. `"rules_large"` is the production configuration: rules →
+gpt-oss-120b, no small-model tier.)
 
 **Borderline flag:** `eval_items`/`eval_results` have no borderline column. The flag
 lives in `/eval/borderline.txt` — one `notice_id` per line, optional. Absent from the
