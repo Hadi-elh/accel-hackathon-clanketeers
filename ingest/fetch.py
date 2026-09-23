@@ -41,10 +41,22 @@ def fetch_raw_notices(target_date: str, limit: int | None = DEFAULT_FETCH_LIMIT)
 def fetch_notices(date: str, profile: dict) -> list[dict]:
     """Fetch + prefilter. Returns Notice dicts (CONTRACTS.md SS1).
 
-    Prefilter drops: wrong rubriek, outside radius_km. Never calls a model.
+    Prefilter drops: wrong rubriek, outside radius_km. Also drops
+    location_unknown notices whose municipality is empirically confirmed
+    out-of-radius by real coordinates already observed elsewhere in the
+    notices table (see prefilter.municipalities_in_radius) -- falls back to
+    no municipality filtering if that lookup fails for any reason. Never
+    calls a model.
     """
     raw = fetch_raw_notices(date)
-    kept, _funnel = prefilter(raw, profile)
+    try:
+        from ingest import db
+        from ingest.prefilter import municipalities_in_radius
+
+        muni_class = municipalities_in_radius(profile, db.fetch_all_notices())
+    except Exception:
+        muni_class = None
+    kept, _funnel = prefilter(raw, profile, municipality_classification=muni_class)
     return kept
 
 

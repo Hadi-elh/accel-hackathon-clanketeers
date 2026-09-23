@@ -34,6 +34,7 @@ def prefilter(
     notices: list[dict],
     profile: dict,
     allowed_rubrieken: set[str] | None = None,
+    municipality_classification: dict[str, str] | None = None,
 ) -> tuple[list[dict], dict]:
     """Apply the deterministic prefilter (radius check + rubriek allowlist).
 
@@ -41,15 +42,23 @@ def prefilter(
     {"fetched", "in_region", "plausible_rubriek", "location_unknown"}.
     `in_region` and `plausible_rubriek` describe the known-location subset
     (a decreasing funnel); `location_unknown` is a separate diagnostic count
-    -- those notices are never silently dropped, they still pass the rubriek
-    check and enter `kept`, but since we cannot verify their geography they
-    don't count toward `in_region`/`plausible_rubriek`.
+    -- those notices are never silently dropped by default, they still pass
+    the rubriek check and enter `kept`, but since we cannot verify their
+    geography they don't count toward `in_region`/`plausible_rubriek`.
+
+    `municipality_classification` (see municipalities_in_radius()) is
+    optional and, when given, actively drops location_unknown notices whose
+    municipality is empirically 'out' of radius (every real coordinate ever
+    observed for that municipality was outside radius_km) -- these are
+    counted separately as `dropped_by_municipality`, never silently merged
+    into `location_unknown`, so the funnel still shows why they left.
     """
     allowed = allowed_rubrieken or ALLOWED_RUBRIEKEN
     fetched = len(notices)
     in_region = 0
     plausible_rubriek = 0
     location_unknown = 0
+    dropped_by_municipality = 0
     kept: list[dict] = []
 
     for n in notices:
@@ -57,6 +66,12 @@ def prefilter(
         rubriek_ok = n.get("rubriek") in allowed
 
         if lat is None or lng is None:
+            muni_class = None
+            if municipality_classification and n.get("municipality"):
+                muni_class = municipality_classification.get(n["municipality"])
+            if muni_class == "out":
+                dropped_by_municipality += 1
+                continue
             location_unknown += 1
             if rubriek_ok:
                 kept.append(n)
@@ -76,6 +91,7 @@ def prefilter(
         "in_region": in_region,
         "plausible_rubriek": plausible_rubriek,
         "location_unknown": location_unknown,
+        "dropped_by_municipality": dropped_by_municipality,
     }
     return kept, funnel
 
