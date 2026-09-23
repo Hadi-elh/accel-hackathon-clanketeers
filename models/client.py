@@ -27,12 +27,12 @@ BASE_SCHEMA: dict = json.loads(Path(__file__).with_name("schema.json").read_text
 
 # ---- Fill from the Nebius dashboard, mirror into models/PRICES.md. ------------------
 # Never guess. A None price makes cost_eur None: visible, not silently wrong.
-USD_TO_EUR: float | None = None  # or rename the column to cost_usd at the sync
+USD_TO_EUR: float | None = round(1 / 1.1463, 6)  # ECB reference 2026-09-22: 1 EUR = 1.1463 USD
 
 MODELS: dict[str, dict[str, Any]] = {
     "small": {
-        "id": "FILL_FROM_DASHBOARD",  # Nemotron 3 Nano 30B A3B
-        "usd_in_per_m": None, "usd_out_per_m": None,
+        "id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",  # Base public endpoint, 60 tok/s
+        "usd_in_per_m": 0.06, "usd_out_per_m": 0.24,
         "max_tokens": 1000,
         # Model-card switch. Verify Nebius honours it: run the smoke test, output_tokens
         # and reasoning_chars must drop versus extra_body={}.
@@ -41,25 +41,25 @@ MODELS: dict[str, dict[str, Any]] = {
     # Measurement only: small at its DEFAULT reasoning setting. Own stage so model_runs can tell them apart. Benchmark both, keep the
     # cheaper one only if the numbers say so. Never used by the router.
     "small_think": {
-        "id": "FILL_FROM_DASHBOARD",  # same ID as "small"
-        "usd_in_per_m": None, "usd_out_per_m": None,
+        "id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+        "usd_in_per_m": 0.06, "usd_out_per_m": 0.24,
         "max_tokens": 6000,
         "extra_body": {},
     },
     "large": {
-        "id": "FILL_FROM_DASHBOARD",  # Nebius examples use "openai/gpt-oss-120b"
-        "usd_in_per_m": None, "usd_out_per_m": None,
+        "id": "openai/gpt-oss-120b",  # Base public endpoint, 40 tok/s
+        "usd_in_per_m": 0.15, "usd_out_per_m": 0.60,
         "max_tokens": 6000,  # reasoning + JSON; truncation shows up as error="truncated"
         "extra_body": {"reasoning_effort": "medium"},  # low|medium|high, cannot be off
     },
     "baseline_open": {
-        "id": "FILL_FROM_DASHBOARD",  # DeepSeek V4 Pro / Qwen3.5 397B class
+        "id": "deepseek-ai/DeepSeek-V4-Pro",  # prices: fill from the prices page before running
         "usd_in_per_m": None, "usd_out_per_m": None,
         "max_tokens": 8000,
         "extra_body": {},  # leave reasoning at its default: this row is "big model on everything"
     },
     "finetuned": {
-        "id": "FILL_AFTER_LORA_JOB",
+        "id": "FILL_AFTER_LORA_JOB",  # Nano has NO LoRA on Nebius: finetuned row is cut unless a different base is agreed
         "usd_in_per_m": None, "usd_out_per_m": None,
         "max_tokens": 1000,
         "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
