@@ -32,6 +32,7 @@ from models.router import CONTRACT_KEYS, THRESHOLD, classify_notice
 
 RUNS_DIR = Path(__file__).with_name("runs")
 BORDERLINE_FILE = Path(__file__).with_name("borderline.txt")  # optional: one notice_id per line
+OUT_OF_SCOPE_FILE = Path(__file__).with_name("out_of_scope.txt")  # prefilter drops these before any model call
 # /CONTRACTS.md §5. Add "baseline_open" only once CONTRACTS.md lists it.
 DB_CONFIGS = {"small", "large", "router", "baseline_closed", "finetuned"}
 DECISIONS = {"relevant", "irrelevant", "uncertain"}
@@ -73,10 +74,12 @@ def load_test_items(limit: int | None) -> list[dict]:
     labels = _sb().table("eval_items").select("*").eq("split", "test").execute().data
     notices = _notices_by_id([l["notice_id"] for l in labels])
     border = set(BORDERLINE_FILE.read_text().split()) if BORDERLINE_FILE.exists() else None
+    oos = set(OUT_OF_SCOPE_FILE.read_text().split()) if OUT_OF_SCOPE_FILE.exists() else set()
     items, skipped = [], {}
     for l in labels:
         n = notices.get(l["notice_id"])
         why = ("no_notice_row" if n is None
+               else "out_of_scope" if l["notice_id"] in oos
                else "non_binary_label" if l["expected_decision"] not in ("relevant", "irrelevant")
                else "empty_body" if len(" ".join((n.get("body") or "").split())) < 40
                else None)

@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import time
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -154,6 +155,38 @@ def evidence_ok(evidence: Any, body: Any) -> bool:
         return False
     ev = _norm(evidence).strip(_EDGE)
     return len(ev) >= MIN_EVIDENCE_CHARS and ev in _norm(body)
+
+
+_SENT = re.compile(r"(?<=[.!?;:])\s+")
+SNAP_MIN_COVERAGE = 0.85  # share of the model's quote that must appear, in order, in one body sentence
+
+
+def snap_evidence(evidence: Any, body: Any) -> str | None:
+    """Near-verbatim quote (case, punctuation, one dropped or changed word) -> the exact body
+    sentence it came from, so evidence stays verbatim by construction. None if nothing is close:
+    a translation or paraphrase is not rescued and still counts as invalid."""
+    if not isinstance(evidence, str) or not isinstance(body, str):
+        return None
+    ev = _norm(evidence).strip(_EDGE).lower()
+    nb = _norm(body)
+    if len(ev) < MIN_EVIDENCE_CHARS:
+        return None
+    if len(nb.lower()) == len(nb):  # case-only difference: slice the original text
+        i = nb.lower().find(ev)
+        if i >= 0:
+            return nb[i:i + len(ev)]
+    best, best_cov = None, 0.0
+    for sent in _SENT.split(nb):
+        sent = sent.strip()
+        if len(sent) < MIN_EVIDENCE_CHARS:
+            continue
+        m = SequenceMatcher(None, ev, sent.lower(), autojunk=False)
+        blocks = [b for b in m.get_matching_blocks() if b.size >= 4]  # ignore scattered letters
+        cov = sum(b.size for b in blocks) / len(ev)
+        if cov > best_cov and blocks:
+            lo, hi = min(b.b for b in blocks), max(b.b + b.size for b in blocks)
+            best, best_cov = (sent if len(sent) <= 300 else sent[lo:hi]), cov
+    return best if best_cov >= SNAP_MIN_COVERAGE and best and len(best) >= MIN_EVIDENCE_CHARS else None
 
 
 def validate(result: Any, notice: dict, profile: dict) -> list[str]:
@@ -307,6 +340,11 @@ def classify(notice: dict, profile: dict, model: str = "small") -> tuple[dict | 
             meta["error"] = "truncated" if choice.finish_reason == "length" else "parse_failed"
         else:
             result = {k: parsed[k] for k in BASE_SCHEMA["properties"] if k in parsed}
+            if not evidence_ok(result.get("evidence"), notice.get("body")):
+                snapped = snap_evidence(result.get("evidence"), notice.get("body"))
+                if snapped:  # cheaper than escalating a near-verbatim quote to the large model
+                    meta["evidence_snapped_from"] = result["evidence"]
+                    result["evidence"] = snapped
             meta["errors"] = validate(result, notice, profile)
             meta["ok"] = not meta["errors"]
             meta["error"] = ",".join(meta["errors"]) or None
