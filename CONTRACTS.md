@@ -86,6 +86,15 @@ Allowed values:
 
 JSON schema lives at `/models/schema.json`. Single source of truth for the API call.
 
+**Rule-based decisions:** `/models/rules.py` may reject a notice for free, with no model
+call. Stored in `signals` with `model_used = 'rules:rN'` (rN = `rules.RULES_VERSION`) and
+**no corresponding `model_runs` row** — rules never call a model, so nothing to log.
+Their `confidence` is a declared constant (`rules.RULE_CONFIDENCE`), not a measured
+probability.
+
+**Confidence is never user-facing.** `confidence` (model or rule) exists for routing and
+eval only. No UI may render it as a percentage or score — see the product boundary.
+
 ---
 
 ## 4. Function signatures
@@ -99,9 +108,21 @@ def fetch_notices(date: str, profile: dict) -> list[dict]:
     Prefilter drops: wrong rubriek, outside radius_km. Never calls a model."""
 
 def prefilter_stats() -> dict:
-    """Funnel counters for the UI. All real, never hard-coded.
-    {"fetched": 1284, "in_region": 46, "plausible_rubriek": 31, "location_unknown": 3}"""
+    """Funnel counters for the UI, across the whole notices table (no date filter).
+    All real, never hard-coded.
+    {"fetched": 1284, "in_region": 46, "plausible_rubriek": 31, "location_unknown": 3,
+     "location_unknown_kept": 3, "dropped_by_municipality": 0}"""
+
+def prefilter_stats_for_date(target_date: str, profile: dict | None = None) -> dict:
+    """Same funnel, scoped to one scan date. Adds "date" and "geo_inferred_in_region".
+    This is the dict C stores verbatim into scan_runs.prefilter_stats (jsonb)."""
 ```
+
+`kept == plausible_rubriek + location_unknown_kept` always holds — A asserts this
+identity. `fetched`, `plausible_rubriek`, `location_unknown_kept` are stable contract
+keys; every other key in the funnel dict (`in_region`, `location_unknown`,
+`dropped_by_municipality`, `geo_inferred_in_region`, ...) is diagnostic and may change
+without a sync.
 
 ```python
 # /models/router.py  — owner B
@@ -123,6 +144,14 @@ GET  /api/benchmark                                     -> current comparison ta
 **Stub rule:** until B ships, C uses a stub `classify_notice` that returns a fixed
 "relevant" result after a 200 ms sleep. When B's version lands, C changes one import.
 No integration crunch at hour three.
+
+**`scan_runs` table:** one row per `POST /api/scan` call. **`/app`'s scan orchestrator
+is the only writer** — A and B never insert into it. Written from `fetch_notices()`'s
+count, `prefilter_stats_for_date()` (stored whole, in `prefilter_stats` jsonb), and the
+resulting `signals` rows for that scan (`rule_rejected`, `ai_analysed`, `escalated`,
+`uncertain`, `relevant` are counts; `no_text` counts rows with
+`error='empty_or_short_body'`). `cost_eur` is the sum of that scan's `model_runs.cost_eur`,
+or `null` if any contributing row has a `null` cost. See `schema.sql` for columns.
 
 ---
 
@@ -147,4 +176,15 @@ would be ~95% irrelevant and a model that always says "irrelevant" would score 9
 may be model-generated).
 
 Config names used in `eval_results.config`, exactly these strings:
-`"small"`, `"large"`, `"router"`, `"baseline_closed"`, `"finetuned"`.
+`"small"`, `"large"`, `"router"`, `"baseline_closed"`, `"baseline_open"`.
+(`"finetuned"` is dropped: Nemotron 3 Nano has no LoRA fine-tuning on Nebius — see
+`/models/PRICES.md`.)
+
+**Borderline flag:** `eval_items`/`eval_results` have no borderline column. The flag
+lives in `/eval/borderline.txt` — one `notice_id` per line, optional. Absent from the
+file means "not borderline", not "unknown."
+
+**Cost currency:** always EUR. Every `cost_eur` column (`model_runs`, `eval_results`,
+`scan_runs`) is converted from Nebius's USD list price at the ECB reference rate
+recorded in `/models/PRICES.md`. Never store USD directly; a missing price gives
+`cost_eur = null`, never a guessed number.
